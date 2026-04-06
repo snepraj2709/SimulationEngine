@@ -1,7 +1,27 @@
+from app.tests.factories import sample_generated_icps, sample_generated_scenarios, sample_product_understanding, sample_scrape_result
 from fastapi.testclient import TestClient
 
 
-def test_full_happy_path(client: TestClient) -> None:
+def test_full_happy_path(client: TestClient, monkeypatch) -> None:
+    async def fake_scrape(self, normalized_url: str):
+        return sample_scrape_result(normalized_url)
+
+    async def fake_understanding(self, scrape_result, *, user_identifier: str):
+        return sample_product_understanding()
+
+    async def fake_artifacts(self, understanding, *, user_identifier: str):
+        return sample_generated_icps(), sample_generated_scenarios()
+
+    monkeypatch.setattr("app.services.scraper_service.ScraperService.scrape", fake_scrape)
+    monkeypatch.setattr(
+        "app.services.llm.openai_analysis_service.OpenAIAnalysisService.generate_product_understanding",
+        fake_understanding,
+    )
+    monkeypatch.setattr(
+        "app.services.llm.openai_analysis_service.OpenAIAnalysisService.generate_icps_and_scenarios",
+        fake_artifacts,
+    )
+
     register = client.post(
         "/api/v1/auth/register",
         json={
@@ -15,7 +35,7 @@ def test_full_happy_path(client: TestClient) -> None:
 
     create_analysis = client.post(
         "/api/v1/analyses",
-        json={"url": "https://www.netflix.com/", "run_async": False},
+        json={"url": "https://acme.example/", "run_async": False},
         headers=headers,
     )
     assert create_analysis.status_code == 202

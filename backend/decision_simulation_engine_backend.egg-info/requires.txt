@@ -3,6 +3,7 @@ beautifulsoup4<5.0.0,>=4.12.3
 email-validator<3.0.0,>=2.2.0
 fastapi<1.0.0,>=0.115.0
 httpx<1.0.0,>=0.27.2
+openai<3.0.0,>=2.30.0
 passlib[bcrypt]<2.0.0,>=1.7.4
 pydantic-settings<3.0.0,>=2.6.0
 PyJWT<3.0.0,>=2.9.0

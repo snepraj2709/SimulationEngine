@@ -4,6 +4,7 @@ import { Link, useParams } from "react-router-dom";
 
 import { rerunScenario, submitFeedback } from "@/api/analyses";
 import { ApiError } from "@/api/client";
+import { AnalysisPendingState } from "@/components/analysis/AnalysisPendingState";
 import { AnalysisStatusCard } from "@/components/analysis/AnalysisStatusCard";
 import { DecisionFlowGraph } from "@/components/analysis/DecisionFlowGraph";
 import { EmptyState } from "@/components/analysis/EmptyState";
@@ -28,6 +29,7 @@ export function AnalysisResultPage() {
   const setSelectedScenarioId = useUIStore((state) => state.setSelectedScenarioId);
   const setSelectedICPId = useUIStore((state) => state.setSelectedICPId);
   const toggleCompareScenario = useUIStore((state) => state.toggleCompareScenario);
+  const clearCompareScenarios = useUIStore((state) => state.clearCompareScenarios);
 
   const analysisQuery = useAnalysisPolling(analysisId);
   const rerunMutation = useMutation({
@@ -40,6 +42,12 @@ export function AnalysisResultPage() {
   });
 
   const analysis = analysisQuery.data;
+
+  useEffect(() => {
+    setSelectedScenarioId(null);
+    setSelectedICPId(null);
+    clearCompareScenarios();
+  }, [analysisId, clearCompareScenarios, setSelectedICPId, setSelectedScenarioId]);
 
   useEffect(() => {
     if (!analysis) return;
@@ -84,6 +92,22 @@ export function AnalysisResultPage() {
     );
   }
 
+  const isPending = analysis.status === "queued" || analysis.status === "processing";
+
+  if (isPending) {
+    return (
+      <AppShell
+        title={analysis.extracted_product_data?.product_name ?? "Analysis"}
+        subtitle={analysis.normalized_url}
+      >
+        <div className="space-y-8">
+          <AnalysisStatusCard status={analysis.status} errorMessage={analysis.error_message} />
+          <AnalysisPendingState url={analysis.normalized_url || analysis.input_url} status={analysis.status} />
+        </div>
+      </AppShell>
+    );
+  }
+
   return (
     <AppShell
       title={analysis.extracted_product_data?.product_name ?? "Analysis"}
@@ -91,13 +115,6 @@ export function AnalysisResultPage() {
     >
       <div className="space-y-8">
         <AnalysisStatusCard status={analysis.status} errorMessage={analysis.error_message} />
-
-        {(analysis.status === "queued" || analysis.status === "processing") && (
-          <LoadingState
-            title="Analysis in progress"
-            description="Scraping, product understanding, ICP generation, and default scenario simulation are still running."
-          />
-        )}
 
         {analysis.extracted_product_data ? <ProductSummaryPanel data={analysis.extracted_product_data} /> : null}
 

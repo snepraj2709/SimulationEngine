@@ -64,6 +64,13 @@ async def create_analysis(
             session.commit()
             return build_analysis_create_response(cloned, reused=True, cloned_from_analysis_id=cached_analysis.id)
 
+    if not settings.openai_api_key:
+        raise AppException(
+            503,
+            "openai_not_configured",
+            "OPENAI_API_KEY must be configured before analyzing a real URL.",
+        )
+
     analysis = repository.create(
         user_id=user.id,
         input_url=str(payload.url),

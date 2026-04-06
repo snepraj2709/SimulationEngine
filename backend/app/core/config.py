@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     scrape_max_bytes: int = 2_000_000
     rate_limit_per_minute: int = 60
     openai_api_key: str | None = None
+    openai_model: str = "gpt-5.4"
     allow_private_network_scraping: bool = False
     demo_user_email: str = "demo@example.com"
     demo_user_password: str = "DemoPass123!"

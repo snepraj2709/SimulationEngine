@@ -13,10 +13,9 @@ from app.models.scenario import Scenario
 from app.models.simulation import SimulationResult, SimulationRun
 from app.repositories.analysis_repository import AnalysisRepository
 from app.services.domain_types import GeneratedICP, GeneratedScenario
-from app.services.icp_generation_service import ICPGenerationService
+from app.services.llm.openai_analysis_service import OpenAIAnalysisService
 from app.services.outcome_aggregator import OutcomeAggregator
 from app.services.product_understanding_service import ProductUnderstandingService
-from app.services.scenario_generation_service import ScenarioGenerationService
 from app.services.scraper_service import ScraperService
 from app.services.simulation_engine import SimulationEngine
 
@@ -28,9 +27,8 @@ class AnalysisPipelineService:
         self.session = session
         self.repository = AnalysisRepository(session)
         self.scraper = ScraperService()
+        self.llm_analysis = OpenAIAnalysisService()
         self.product_understanding = ProductUnderstandingService()
-        self.icp_generation = ICPGenerationService()
-        self.scenario_generation = ScenarioGenerationService()
         self.simulation_engine = SimulationEngine()
         self.outcome_aggregator = OutcomeAggregator()
 
@@ -43,7 +41,10 @@ class AnalysisPipelineService:
         self.session.commit()
         try:
             scrape_result = await self.scraper.scrape(analysis.normalized_url)
-            understanding = self.product_understanding.build(scrape_result)
+            understanding = await self.llm_analysis.generate_product_understanding(
+                scrape_result,
+                user_identifier=analysis.user_id,
+            )
             analysis.extracted_product_data = ExtractedProductData(
                 company_name=understanding.company_name,
                 product_name=understanding.product_name,
@@ -57,9 +58,11 @@ class AnalysisPipelineService:
                 confidence_score=understanding.confidence_score,
             )
 
-            generated_icps = self.icp_generation.generate(understanding)
+            generated_icps, generated_scenarios = await self.llm_analysis.generate_icps_and_scenarios(
+                understanding,
+                user_identifier=analysis.user_id,
+            )
             icp_entities = [self._persist_icp(analysis, icp) for icp in generated_icps]
-            generated_scenarios = self.scenario_generation.generate(understanding, generated_icps)
             scenario_entities = [self._persist_scenario(analysis, scenario) for scenario in generated_scenarios]
             self.session.flush()
 

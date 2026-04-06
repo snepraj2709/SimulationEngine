@@ -17,11 +17,10 @@ export function URLSubmitForm({ isLoading = false, onSubmit }: URLSubmitFormProp
   const {
     register,
     handleSubmit,
-    setValue,
     formState: { errors },
   } = useForm<URLFormValues>({
     resolver: zodResolver(urlSchema),
-    defaultValues: { url: "https://www.netflix.com/" },
+    defaultValues: { url: "" },
   });
 
   return (
@@ -39,7 +38,7 @@ export function URLSubmitForm({ isLoading = false, onSubmit }: URLSubmitFormProp
           <div className="flex flex-col gap-3 md:flex-row">
             <input
               {...register("url")}
-              placeholder="https://www.example.com/"
+              placeholder="https://www.netflix.com/"
               className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-slate-500"
             />
             <button
@@ -52,16 +51,6 @@ export function URLSubmitForm({ isLoading = false, onSubmit }: URLSubmitFormProp
           </div>
           {errors.url ? <span className="text-sm text-red-600">{errors.url.message}</span> : null}
         </label>
-        <div className="flex flex-wrap items-center gap-3 text-sm">
-          <button
-            type="button"
-            onClick={() => setValue("url", "https://www.netflix.com/")}
-            className="rounded-full border border-slate-300 px-3 py-1.5 font-medium text-slate-700 hover:border-slate-400 hover:bg-slate-100"
-          >
-            Load Netflix demo
-          </button>
-          <span className="text-slate-500">Includes a seeded “premium price increase in India” default scenario.</span>
-        </div>
       </div>
     </form>
   );

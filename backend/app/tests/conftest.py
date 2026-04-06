@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Generator
+import os
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
+
+os.environ["DEBUG"] = "false"
 
 from app.core.config import Settings, set_settings_override
 from app.db.base import Base
@@ -23,6 +26,8 @@ def test_settings(tmp_path) -> Settings:
         cors_origins=["http://localhost:5173"],
         rate_limit_per_minute=1000,
         analysis_cache_hours=24,
+        openai_api_key="test-openai-key",
+        openai_model="gpt-5.4",
     )
     set_settings_override(settings)
     init_db(settings.database_url)

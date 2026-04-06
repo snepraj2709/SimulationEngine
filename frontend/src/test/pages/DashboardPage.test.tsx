@@ -11,8 +11,8 @@ vi.mock("@/api/analyses", () => ({
   listAnalyses: vi.fn().mockResolvedValue([
     {
       id: "analysis-1",
-      input_url: "https://www.netflix.com/",
-      normalized_url: "https://www.netflix.com",
+      input_url: "https://acme.example/",
+      normalized_url: "https://acme.example",
       status: "completed",
       created_at: new Date().toISOString(),
       completed_at: new Date().toISOString(),
@@ -22,8 +22,8 @@ vi.mock("@/api/analyses", () => ({
   createAnalysis: vi.fn().mockResolvedValue({
     analysis: {
       id: "analysis-2",
-      input_url: "https://www.netflix.com/",
-      normalized_url: "https://www.netflix.com",
+      input_url: "https://acme.example/",
+      normalized_url: "https://acme.example",
       status: "queued",
       created_at: new Date().toISOString(),
       completed_at: null,
@@ -65,14 +65,20 @@ describe("DashboardPage", () => {
     const user = userEvent.setup();
     renderPage();
 
-    expect(await screen.findByText(/https:\/\/www.netflix.com/i)).toBeInTheDocument();
-    const input = screen.getByPlaceholderText("https://www.example.com/");
+    expect(await screen.findByText(/https:\/\/acme.example/i)).toBeInTheDocument();
+    const input = screen.getByPlaceholderText("https://www.netflix.com/");
     await user.clear(input);
-    await user.type(input, "https://www.netflix.com/");
+    await user.type(input, "https://acme.example/");
     await user.click(screen.getByRole("button", { name: /analyze url/i }));
 
     await waitFor(() => {
       expect(screen.getByText(/continue where you left off/i)).toBeInTheDocument();
     });
+  });
+
+  it("does not render a netflix demo action", () => {
+    renderPage();
+
+    expect(screen.queryByRole("button", { name: /load netflix demo/i })).not.toBeInTheDocument();
   });
 });

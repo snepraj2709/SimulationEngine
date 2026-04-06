@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 
 import { createAnalysis, listAnalyses } from "@/api/analyses";
@@ -8,10 +8,13 @@ import { ErrorState } from "@/components/analysis/ErrorState";
 import { LoadingState } from "@/components/analysis/LoadingState";
 import { URLSubmitForm } from "@/components/forms/URLSubmitForm";
 import { AppShell } from "@/components/layout/AppShell";
+import { createPendingAnalysisDetail, upsertAnalysisListItem } from "@/lib/analysis";
+import { AnalysisDetail, AnalysisListItem } from "@/types/api";
 import { formatDate } from "@/lib/utils";
 
 export function DashboardPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const analysesQuery = useQuery({
     queryKey: ["analyses"],
     queryFn: listAnalyses,
@@ -19,6 +22,15 @@ export function DashboardPage() {
   const createMutation = useMutation({
     mutationFn: createAnalysis,
     onSuccess: (data) => {
+      queryClient.setQueryData(["analysis", data.analysis.id], (existing: AnalysisDetail | undefined) => {
+        if (existing && data.analysis.status === "completed") {
+          return existing;
+        }
+        return createPendingAnalysisDetail(data.analysis);
+      });
+      queryClient.setQueryData(["analyses"], (existing: AnalysisListItem[] | undefined) =>
+        upsertAnalysisListItem(existing, data.analysis),
+      );
       navigate(`/analyses/${data.analysis.id}`);
     },
   });

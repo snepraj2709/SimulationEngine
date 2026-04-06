@@ -5,13 +5,21 @@ import { describe, expect, it, vi } from "vitest";
 import { URLSubmitForm } from "@/components/forms/URLSubmitForm";
 
 describe("URLSubmitForm", () => {
+  it("starts empty and uses Netflix as placeholder text only", () => {
+    render(<URLSubmitForm onSubmit={vi.fn()} />);
+
+    const input = screen.getByPlaceholderText("https://www.netflix.com/") as HTMLInputElement;
+
+    expect(input.value).toBe("");
+  });
+
   it("validates URL input before submit", async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn();
 
     render(<URLSubmitForm onSubmit={onSubmit} />);
 
-    const input = screen.getByPlaceholderText("https://www.example.com/");
+    const input = screen.getByPlaceholderText("https://www.netflix.com/");
     await user.clear(input);
     await user.type(input, "not-a-url");
     await user.click(screen.getByRole("button", { name: /analyze url/i }));

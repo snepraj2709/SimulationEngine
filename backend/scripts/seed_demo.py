@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import asyncio
 
+from sqlalchemy import desc, select
+
 from app.core.config import get_settings
 from app.db.session import get_session_factory, init_db
+from app.models.analysis import Analysis
 from app.repositories.analysis_repository import AnalysisRepository
 from app.repositories.user_repository import UserRepository
 from app.services.analysis_pipeline import AnalysisPipelineService
@@ -26,7 +29,15 @@ async def seed_demo() -> None:
             )
             session.commit()
         analysis_repo = AnalysisRepository(session)
-        existing = analysis_repo.get_latest_by_user_and_url(user.id, "https://www.netflix.com")
+        existing = session.scalar(
+            select(Analysis)
+            .where(
+                Analysis.user_id == user.id,
+                Analysis.normalized_url == "https://www.netflix.com",
+                Analysis.pipeline_version == Analysis.DEMO_PIPELINE_VERSION,
+            )
+            .order_by(desc(Analysis.created_at))
+        )
         if existing and existing.status == "completed":
             print(f"Demo analysis already exists: {existing.id}")
             return
@@ -35,6 +46,7 @@ async def seed_demo() -> None:
             input_url="https://www.netflix.com/",
             normalized_url="https://www.netflix.com",
             status="queued",
+            pipeline_version=Analysis.DEMO_PIPELINE_VERSION,
         )
         session.commit()
         await AnalysisPipelineService(session).process_analysis(analysis.id)

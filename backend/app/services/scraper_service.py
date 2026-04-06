@@ -9,7 +9,6 @@ from app.core.config import get_settings
 from app.core.exceptions import AppException
 from app.core.logging import get_logger
 from app.services.domain_types import ScrapeResult
-from app.utils.sample_sites import get_sample_site
 from app.utils.text import dedupe_preserve_order, extract_price_signals, normalize_text, top_keywords, truncate_text
 
 logger = get_logger(__name__)
@@ -19,10 +18,6 @@ class ScraperService:
     USER_AGENT = "DecisionSimulationEngineBot/0.1 (+https://localhost)"
 
     async def scrape(self, normalized_url: str) -> ScrapeResult:
-        sample = get_sample_site(normalized_url)
-        if sample:
-            return self._parse_html(sample.normalized_url, sample.html, fetch_source="fixture")
-
         settings = get_settings()
         timeout = httpx.Timeout(
             timeout=settings.request_timeout_seconds,

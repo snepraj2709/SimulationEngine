@@ -11,12 +11,21 @@ class AnalysisRepository:
     def __init__(self, session: Session) -> None:
         self.session = session
 
-    def create(self, *, user_id: str, input_url: str, normalized_url: str, status: AnalysisStatus) -> Analysis:
+    def create(
+        self,
+        *,
+        user_id: str,
+        input_url: str,
+        normalized_url: str,
+        status: AnalysisStatus,
+        pipeline_version: str | None = None,
+    ) -> Analysis:
         analysis = Analysis(
             user_id=user_id,
             input_url=input_url,
             normalized_url=normalized_url,
             status=status.value if isinstance(status, AnalysisStatus) else status,
+            pipeline_version=pipeline_version or Analysis.ACTIVE_PIPELINE_VERSION,
         )
         self.session.add(analysis)
         self.session.flush()
@@ -25,7 +34,11 @@ class AnalysisRepository:
     def get_by_id_for_user(self, analysis_id: str, user_id: str) -> Analysis | None:
         stmt = (
             select(Analysis)
-            .where(Analysis.id == analysis_id, Analysis.user_id == user_id)
+            .where(
+                Analysis.id == analysis_id,
+                Analysis.user_id == user_id,
+                Analysis.pipeline_version == Analysis.ACTIVE_PIPELINE_VERSION,
+            )
             .options(
                 joinedload(Analysis.extracted_product_data),
                 selectinload(Analysis.icp_profiles),
@@ -36,13 +49,24 @@ class AnalysisRepository:
         return self.session.scalar(stmt)
 
     def list_for_user(self, user_id: str) -> list[Analysis]:
-        stmt = select(Analysis).where(Analysis.user_id == user_id).order_by(desc(Analysis.created_at))
+        stmt = (
+            select(Analysis)
+            .where(
+                Analysis.user_id == user_id,
+                Analysis.pipeline_version == Analysis.ACTIVE_PIPELINE_VERSION,
+            )
+            .order_by(desc(Analysis.created_at))
+        )
         return list(self.session.scalars(stmt))
 
     def get_latest_by_user_and_url(self, user_id: str, normalized_url: str) -> Analysis | None:
         stmt = (
             select(Analysis)
-            .where(Analysis.user_id == user_id, Analysis.normalized_url == normalized_url)
+            .where(
+                Analysis.user_id == user_id,
+                Analysis.normalized_url == normalized_url,
+                Analysis.pipeline_version == Analysis.ACTIVE_PIPELINE_VERSION,
+            )
             .order_by(desc(Analysis.created_at))
         )
         return self.session.scalar(stmt)
@@ -59,6 +83,7 @@ class AnalysisRepository:
             .where(
                 Analysis.normalized_url == normalized_url,
                 Analysis.status == AnalysisStatus.completed.value,
+                Analysis.pipeline_version == Analysis.ACTIVE_PIPELINE_VERSION,
                 Analysis.completed_at.is_not(None),
                 Analysis.completed_at >= min_completed_at,
             )

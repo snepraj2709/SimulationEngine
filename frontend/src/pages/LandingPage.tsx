@@ -37,14 +37,14 @@ export function LandingPage() {
             </div>
           </div>
           <div className="panel p-6">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Included demo</p>
-            <h2 className="mt-2 text-2xl font-semibold text-slate-950">Netflix premium price increase in India</h2>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Pipeline Output</p>
+            <h2 className="mt-2 text-2xl font-semibold text-slate-950">What arrives after a URL is submitted</h2>
             <div className="mt-6 grid gap-3">
               {[
-                "3 default scenarios generated immediately",
-                "5 deterministic ICPs with weighted drivers",
-                "Retention, downgrade, upgrade, churn, and revenue projections",
-                "Second-order effects and feedback capture",
+                "URL-specific product understanding built from live page content",
+                "3 to 5 generated ICPs with normalized decision-driver weights",
+                "3 realistic scenarios tailored to the submitted product",
+                "Deterministic retention, downgrade, upgrade, churn, and revenue simulation",
               ].map((item) => (
                 <div key={item} className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-700">
                   {item}
