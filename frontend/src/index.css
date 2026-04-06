@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color: #0f172a;
+  background:
+    radial-gradient(circle at top left, rgba(15, 118, 110, 0.12), transparent 28%),
+    radial-gradient(circle at top right, rgba(180, 83, 9, 0.08), transparent 24%),
+    linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
+}
+
+body {
+  @apply min-h-screen bg-slate-50 bg-grid-fade bg-[size:28px_28px] font-sans text-slate-900 antialiased;
+}
+
+#root {
+  @apply min-h-screen;
+}
+
+.panel {
+  @apply rounded-3xl border border-slate-200/80 bg-white/90 shadow-panel backdrop-blur;
+}
+
+.panel-header {
+  @apply flex items-center justify-between gap-4 border-b border-slate-200 px-6 py-4;
+}
+
+.metric-pill {
+  @apply inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em];
+}

@@ -1,0 +1,63 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: decision_sim
+      POSTGRES_USER: decision
+      POSTGRES_PASSWORD: decision
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U decision -d decision_sim"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+    environment:
+      APP_NAME: Decision Simulation Engine
+      APP_VERSION: 0.1.0
+      ENVIRONMENT: development
+      DEBUG: "true"
+      API_V1_PREFIX: /api/v1
+      FRONTEND_BASE_URL: http://localhost:3000
+      DATABASE_URL: postgresql+psycopg://decision:decision@db:5432/decision_sim
+      JWT_SECRET_KEY: change-me-to-a-32-char-secret-at-minimum
+      JWT_ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: "1440"
+      CORS_ORIGINS: http://localhost:3000
+      LOG_LEVEL: INFO
+      ANALYSIS_CACHE_HOURS: "24"
+      REQUEST_TIMEOUT_SECONDS: "10"
+      CONNECT_TIMEOUT_SECONDS: "5"
+      SCRAPE_MAX_CONTENT_CHARS: "15000"
+      SCRAPE_MAX_BYTES: "2000000"
+      RATE_LIMIT_PER_MINUTE: "60"
+      ALLOW_PRIVATE_NETWORK_SCRAPING: "false"
+      DEMO_USER_EMAIL: demo@example.com
+      DEMO_USER_PASSWORD: DemoPass123!
+    depends_on:
+      db:
+        condition: service_healthy
+    command: >
+      sh -c "alembic upgrade head &&
+      uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: http://localhost:8000/api/v1
+    depends_on:
+      - backend
+    ports:
+      - "3000:80"
+
+volumes:
+  postgres_data:
