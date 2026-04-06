@@ -77,6 +77,43 @@ def test_repeated_submission_reuses_existing_analysis(client: TestClient, auth_h
     assert second.json()["analysis"]["id"] == first.json()["analysis"]["id"]
 
 
+def test_force_refresh_creates_a_new_analysis(client: TestClient, auth_headers: dict[str, str], monkeypatch) -> None:
+    async def fake_scrape(self, normalized_url: str):
+        return sample_scrape_result(normalized_url)
+
+    async def fake_understanding(self, scrape_result, *, user_identifier: str):
+        return sample_product_understanding()
+
+    async def fake_artifacts(self, understanding, *, user_identifier: str):
+        return sample_generated_icps(), sample_generated_scenarios()
+
+    monkeypatch.setattr("app.services.scraper_service.ScraperService.scrape", fake_scrape)
+    monkeypatch.setattr(
+        "app.services.llm.openai_analysis_service.OpenAIAnalysisService.generate_product_understanding",
+        fake_understanding,
+    )
+    monkeypatch.setattr(
+        "app.services.llm.openai_analysis_service.OpenAIAnalysisService.generate_icps_and_scenarios",
+        fake_artifacts,
+    )
+
+    first = client.post(
+        "/api/v1/analyses",
+        json={"url": "https://acme.example/", "run_async": False},
+        headers=auth_headers,
+    )
+    second = client.post(
+        "/api/v1/analyses",
+        json={"url": "https://acme.example/", "run_async": False, "force_refresh": True},
+        headers=auth_headers,
+    )
+
+    assert first.status_code == 202
+    assert second.status_code == 202
+    assert second.json()["reused"] is False
+    assert second.json()["analysis"]["id"] != first.json()["analysis"]["id"]
+
+
 def test_create_analysis_requires_openai_key(client: TestClient, auth_headers: dict[str, str], test_settings) -> None:
     test_settings.openai_api_key = None
 
@@ -96,4 +133,34 @@ def test_invalid_url_is_rejected(client: TestClient, auth_headers: dict[str, str
         json={"url": "ftp://bad.example.com"},
         headers=auth_headers,
     )
-    assert response.status_code == 422
+    assert response.status_code == 400
+
+
+def test_bare_domain_is_accepted_and_normalized(client: TestClient, auth_headers: dict[str, str], monkeypatch) -> None:
+    async def fake_scrape(self, normalized_url: str):
+        return sample_scrape_result(normalized_url)
+
+    async def fake_understanding(self, scrape_result, *, user_identifier: str):
+        return sample_product_understanding()
+
+    async def fake_artifacts(self, understanding, *, user_identifier: str):
+        return sample_generated_icps(), sample_generated_scenarios()
+
+    monkeypatch.setattr("app.services.scraper_service.ScraperService.scrape", fake_scrape)
+    monkeypatch.setattr(
+        "app.services.llm.openai_analysis_service.OpenAIAnalysisService.generate_product_understanding",
+        fake_understanding,
+    )
+    monkeypatch.setattr(
+        "app.services.llm.openai_analysis_service.OpenAIAnalysisService.generate_icps_and_scenarios",
+        fake_artifacts,
+    )
+
+    response = client.post(
+        "/api/v1/analyses",
+        json={"url": "incommon.ai", "run_async": False},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 202
+    assert response.json()["analysis"]["normalized_url"] == "http://incommon.ai/"

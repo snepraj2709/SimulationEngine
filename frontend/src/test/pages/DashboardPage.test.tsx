@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createAnalysis } from "@/api/analyses";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { useAuthStore } from "@/store/auth-store";
 
@@ -49,6 +50,7 @@ function renderPage() {
 
 describe("DashboardPage", () => {
   beforeEach(() => {
+    vi.mocked(createAnalysis).mockClear();
     useAuthStore.setState({
       token: "token",
       user: {
@@ -73,6 +75,22 @@ describe("DashboardPage", () => {
 
     await waitFor(() => {
       expect(screen.getByText(/continue where you left off/i)).toBeInTheDocument();
+    });
+  });
+
+  it("normalizes bare domains before creating an analysis", async () => {
+    const user = userEvent.setup();
+    const createAnalysisMock = vi.mocked(createAnalysis);
+
+    renderPage();
+
+    const input = screen.getByPlaceholderText("https://www.netflix.com/");
+    await user.clear(input);
+    await user.type(input, "incommon.ai");
+    await user.click(screen.getByRole("button", { name: /analyze url/i }));
+
+    await waitFor(() => {
+      expect(createAnalysisMock.mock.calls.at(-1)?.[0]).toEqual({ url: "http://incommon.ai/", run_async: true });
     });
   });
 

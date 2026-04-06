@@ -1,8 +1,8 @@
 import { useEffect, useMemo } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
-import { rerunScenario, submitFeedback } from "@/api/analyses";
+import { createAnalysis, rerunScenario, submitFeedback } from "@/api/analyses";
 import { ApiError } from "@/api/client";
 import { AnalysisPendingState } from "@/components/analysis/AnalysisPendingState";
 import { AnalysisStatusCard } from "@/components/analysis/AnalysisStatusCard";
@@ -17,11 +17,13 @@ import { ScenarioSuggestionList } from "@/components/analysis/ScenarioSuggestion
 import { SimulationMetricsDashboard } from "@/components/analysis/SimulationMetricsDashboard";
 import { AppShell } from "@/components/layout/AppShell";
 import { useAnalysisPolling } from "@/hooks/use-analysis-polling";
-import { getLatestRunForScenario, scenarioSummaries } from "@/lib/analysis";
+import { createPendingAnalysisDetail, getLatestRunForScenario, scenarioSummaries, upsertAnalysisListItem } from "@/lib/analysis";
 import { useUIStore } from "@/store/ui-store";
+import { AnalysisDetail, AnalysisListItem } from "@/types/api";
 
 export function AnalysisResultPage() {
   const { analysisId = "" } = useParams();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const selectedScenarioId = useUIStore((state) => state.selectedScenarioId);
   const selectedICPId = useUIStore((state) => state.selectedICPId);
@@ -39,6 +41,21 @@ export function AnalysisResultPage() {
   });
   const feedbackMutation = useMutation({
     mutationFn: submitFeedback,
+  });
+  const refreshMutation = useMutation({
+    mutationFn: ({ url }: { url: string }) => createAnalysis({ url, force_refresh: true, run_async: true }),
+    onSuccess: (data) => {
+      queryClient.setQueryData(["analysis", data.analysis.id], (existing: AnalysisDetail | undefined) => {
+        if (existing && data.analysis.status === "completed") {
+          return existing;
+        }
+        return createPendingAnalysisDetail(data.analysis);
+      });
+      queryClient.setQueryData(["analyses"], (existing: AnalysisListItem[] | undefined) =>
+        upsertAnalysisListItem(existing, data.analysis),
+      );
+      navigate(`/analyses/${data.analysis.id}`);
+    },
   });
 
   const analysis = analysisQuery.data;
@@ -93,6 +110,24 @@ export function AnalysisResultPage() {
   }
 
   const isPending = analysis.status === "queued" || analysis.status === "processing";
+  const refreshAction = (
+    <div className="flex flex-col gap-4 rounded-3xl border border-slate-200 bg-slate-50 p-5 md:flex-row md:items-center md:justify-between">
+      <div>
+        <p className="text-sm font-semibold text-slate-950">Need a fresh recompute?</p>
+        <p className="mt-1 text-sm text-slate-600">
+          Hard refresh bypasses cached reuse and reruns the current URL analysis from scratch.
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={() => refreshMutation.mutate({ url: analysis.input_url || analysis.normalized_url })}
+        disabled={isPending || refreshMutation.isPending}
+        className="rounded-2xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-500 hover:bg-white disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
+      >
+        {refreshMutation.isPending ? "Refreshing..." : "Hard refresh"}
+      </button>
+    </div>
+  );
 
   if (isPending) {
     return (
@@ -101,8 +136,12 @@ export function AnalysisResultPage() {
         subtitle={analysis.normalized_url}
       >
         <div className="space-y-8">
+          {refreshAction}
           <AnalysisStatusCard status={analysis.status} errorMessage={analysis.error_message} />
           <AnalysisPendingState url={analysis.normalized_url || analysis.input_url} status={analysis.status} />
+          {refreshMutation.error instanceof ApiError ? (
+            <ErrorState title="Hard refresh failed" message={refreshMutation.error.message} />
+          ) : null}
         </div>
       </AppShell>
     );
@@ -114,6 +153,7 @@ export function AnalysisResultPage() {
       subtitle={analysis.normalized_url}
     >
       <div className="space-y-8">
+        {refreshAction}
         <AnalysisStatusCard status={analysis.status} errorMessage={analysis.error_message} />
 
         {analysis.extracted_product_data ? <ProductSummaryPanel data={analysis.extracted_product_data} /> : null}
@@ -178,6 +218,9 @@ export function AnalysisResultPage() {
 
         {feedbackMutation.error instanceof ApiError ? (
           <ErrorState title="Feedback could not be saved" message={feedbackMutation.error.message} />
+        ) : null}
+        {refreshMutation.error instanceof ApiError ? (
+          <ErrorState title="Hard refresh failed" message={refreshMutation.error.message} />
         ) : null}
       </div>
     </AppShell>

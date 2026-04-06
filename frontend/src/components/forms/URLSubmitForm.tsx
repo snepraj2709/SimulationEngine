@@ -2,8 +2,20 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
+import { normalizeWebsiteUrlInput } from "@/lib/url";
+
 const urlSchema = z.object({
-  url: z.string().url("Enter a valid company or product URL."),
+  url: z.string().trim().min(1, "Enter a valid company or product URL.").transform((value, ctx) => {
+    try {
+      return normalizeWebsiteUrlInput(value);
+    } catch {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Enter a valid company or product URL.",
+      });
+      return z.NEVER;
+    }
+  }),
 });
 
 type URLFormValues = z.infer<typeof urlSchema>;

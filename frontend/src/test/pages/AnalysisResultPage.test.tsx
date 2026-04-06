@@ -1,13 +1,35 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createAnalysis } from "@/api/analyses";
 import { AnalysisResultPage } from "@/pages/AnalysisResultPage";
 import { useAuthStore } from "@/store/auth-store";
 import { useUIStore } from "@/store/ui-store";
 
 const mockUseAnalysisPolling = vi.fn();
+
+vi.mock("@/api/analyses", async () => {
+  const actual = await vi.importActual<typeof import("@/api/analyses")>("@/api/analyses");
+  return {
+    ...actual,
+    createAnalysis: vi.fn().mockResolvedValue({
+      analysis: {
+        id: "analysis-2",
+        input_url: "https://acme.example/",
+        normalized_url: "https://acme.example/",
+        status: "queued",
+        created_at: new Date().toISOString(),
+        completed_at: null,
+        error_message: null,
+      },
+      reused: false,
+      cloned_from_analysis_id: null,
+    }),
+  };
+});
 
 vi.mock("@/hooks/use-analysis-polling", () => ({
   useAnalysisPolling: (analysisId: string) => mockUseAnalysisPolling(analysisId),
@@ -164,5 +186,42 @@ describe("AnalysisResultPage", () => {
     expect(screen.getByText(/revenue operations lead/i)).toBeInTheDocument();
     expect(screen.getByText(/increase annual price by 9%/i)).toBeInTheDocument();
     expect(screen.queryByText(/preparing results for the submitted url/i)).not.toBeInTheDocument();
+  });
+
+  it("shows a hard refresh button and reruns the current URL with force refresh", async () => {
+    const user = userEvent.setup();
+    const createAnalysisMock = vi.mocked(createAnalysis);
+
+    mockUseAnalysisPolling.mockReturnValue({
+      isLoading: false,
+      error: null,
+      data: {
+        id: "analysis-1",
+        input_url: "https://acme.example/",
+        normalized_url: "https://acme.example/",
+        status: "completed",
+        started_at: new Date().toISOString(),
+        completed_at: new Date().toISOString(),
+        error_message: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        extracted_product_data: null,
+        icp_profiles: [],
+        scenarios: [],
+        simulation_runs: [],
+      },
+    });
+
+    renderPage();
+
+    await user.click(screen.getByRole("button", { name: /hard refresh/i }));
+
+    await waitFor(() => {
+      expect(createAnalysisMock).toHaveBeenCalledWith({
+        url: "https://acme.example/",
+        force_refresh: true,
+        run_async: true,
+      });
+    });
   });
 });

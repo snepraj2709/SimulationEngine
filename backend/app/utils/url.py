@@ -29,13 +29,31 @@ def _resolve_private_hosts(hostname: str) -> bool:
     return False
 
 
+def _looks_like_public_hostname(hostname: str) -> bool:
+    if "." in hostname:
+        return True
+    try:
+        ipaddress.ip_address(hostname)
+    except ValueError:
+        return False
+    return True
+
+
 def normalize_url(url: str) -> str:
-    parsed = urlparse(url.strip())
+    raw_url = url.strip()
+    if not raw_url:
+        raise AppException(400, "invalid_url", "URL must include a hostname.")
+
+    parsed = urlparse(raw_url)
+    if not parsed.scheme:
+        parsed = urlparse(f"http://{raw_url}")
     if parsed.scheme not in {"http", "https"}:
         raise AppException(400, "invalid_url", "URL must use http or https.")
     host = parsed.hostname.lower() if parsed.hostname else ""
     if not host:
         raise AppException(400, "invalid_url", "URL must include a hostname.")
+    if host not in BLOCKED_HOSTS and not _looks_like_public_hostname(host):
+        raise AppException(400, "invalid_url", "URL must include a valid public hostname.")
     path = parsed.path or "/"
     if path != "/" and path.endswith("/"):
         path = path[:-1]

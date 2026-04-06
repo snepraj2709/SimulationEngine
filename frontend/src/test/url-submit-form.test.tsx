@@ -27,4 +27,18 @@ describe("URLSubmitForm", () => {
     expect(await screen.findByText(/enter a valid company or product url/i)).toBeInTheDocument();
     expect(onSubmit).not.toHaveBeenCalled();
   });
+
+  it("accepts a bare domain and normalizes it to http before submit", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+
+    render(<URLSubmitForm onSubmit={onSubmit} />);
+
+    const input = screen.getByPlaceholderText("https://www.netflix.com/");
+    await user.clear(input);
+    await user.type(input, "incommon.ai");
+    await user.click(screen.getByRole("button", { name: /analyze url/i }));
+
+    expect(onSubmit).toHaveBeenCalledWith({ url: "http://incommon.ai/" }, expect.anything());
+  });
 });

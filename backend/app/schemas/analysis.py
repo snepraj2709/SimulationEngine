@@ -1,6 +1,7 @@
 from datetime import datetime
+from typing import Annotated
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, StringConstraints
 
 from app.schemas.common import ORMModel
 from app.schemas.product import ExtractedProductDataResponse
@@ -8,7 +9,7 @@ from app.schemas.simulation import ICPProfileResponse, ScenarioResponse, Simulat
 
 
 class AnalysisCreateRequest(BaseModel):
-    url: HttpUrl
+    url: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
     force_refresh: bool = False
     run_async: bool = True
 
@@ -43,4 +44,3 @@ class AnalysisDetailResponse(ORMModel):
     icp_profiles: list[ICPProfileResponse] = Field(default_factory=list)
     scenarios: list[ScenarioResponse] = Field(default_factory=list)
     simulation_runs: list[SimulationRunResponse] = Field(default_factory=list)
-
