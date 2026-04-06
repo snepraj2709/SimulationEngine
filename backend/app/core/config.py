@@ -1,8 +1,8 @@
 from functools import lru_cache
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 _settings_override: "Settings | None" = None
 
@@ -25,7 +25,9 @@ class Settings(BaseSettings):
     jwt_secret_key: str = "change-me-to-a-32-char-secret-at-minimum"
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 24
-    cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])
+    cors_origins: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["http://localhost:5173"]
+    )
     log_level: str = "INFO"
     analysis_cache_hours: int = 24
     request_timeout_seconds: float = 10.0

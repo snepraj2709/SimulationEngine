@@ -22,3 +22,6 @@ cp .env.example .env
 alembic upgrade head
 uvicorn app.main:app --reload --port 8000
 ```
+
+If you run the backend directly from your host shell, `DATABASE_URL` in `.env` should use
+`localhost:5432`. The hostname `db` only resolves inside the Docker Compose network.
