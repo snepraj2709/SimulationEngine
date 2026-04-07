@@ -8,6 +8,14 @@ from app.services.domain_types import GeneratedICP, GeneratedScenario, ProductUn
 class SimulationEngine:
     ENGINE_VERSION = "utility-v1"
 
+    def baseline_revenue_for_scenario(
+        self,
+        *,
+        understanding: ProductUnderstanding,
+        scenario: GeneratedScenario,
+    ) -> float:
+        return self._baseline_revenue(understanding, scenario)
+
     def simulate(
         self,
         *,
@@ -25,7 +33,7 @@ class SimulationEngine:
         utility_after = round(sum(icp.driver_weights.get(driver, 0.0) * adjusted_scores.get(driver, 0.6) for driver in icp.decision_drivers), 4)
         delta = round(utility_after - utility_before, 4)
         reaction = self._classify_reaction(icp, delta)
-        baseline_revenue = self._baseline_revenue(understanding, scenario)
+        baseline_revenue = self.baseline_revenue_for_scenario(understanding=understanding, scenario=scenario)
         revenue_delta = round(self._estimate_revenue_delta(icp, reaction, baseline_revenue, scenario), 2)
         perception_shift = round(max(-1.0, min(1.0, delta * 4.5)), 3)
         second_order_effects = self._second_order_effects(scenario, reaction)

@@ -71,7 +71,7 @@ export function ScenarioCard({
           disabled={isRunning}
           className="rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
         >
-          {isRunning ? "Running..." : "Re-run simulation"}
+          {isRunning ? "Running..." : "Run simulation"}
         </button>
       </div>
     </div>

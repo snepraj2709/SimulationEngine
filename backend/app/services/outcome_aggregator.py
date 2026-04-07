@@ -41,9 +41,13 @@ class OutcomeAggregator:
 
         for icp, result in zip(icps, results, strict=True):
             weight = icp.segment_weight
+            segment_customers = 100 * weight
             reaction_weights[result.reaction] += weight
-            baseline_revenue = max(1.0, 100 * weight)
-            total_baseline_revenue += baseline_revenue
+            baseline_revenue_per_account = result.assumptions.get("baseline_revenue_per_account")
+            if baseline_revenue_per_account is not None:
+                total_baseline_revenue += max(1.0, float(baseline_revenue_per_account)) * segment_customers
+            else:
+                total_baseline_revenue += max(1.0, 100 * weight)
             weighted_revenue_delta += result.revenue_delta
             weighted_perception += result.perception_shift * weight
             risk_rows.append((result.delta_score, icp.name))

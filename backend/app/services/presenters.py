@@ -12,8 +12,10 @@ from app.schemas.simulation import (
     SimulationResultResponse,
     SimulationRunResponse,
 )
-from app.services.domain_types import GeneratedICP, SimulationComputationResult
+from app.services.domain_types import GeneratedICP, GeneratedScenario, SimulationComputationResult
 from app.services.outcome_aggregator import OutcomeAggregator
+from app.services.product_understanding_service import ProductUnderstandingService
+from app.services.simulation_engine import SimulationEngine
 
 
 def build_analysis_list_item(analysis: Analysis) -> AnalysisListItemResponse:
@@ -54,16 +56,7 @@ def build_analysis_detail_response(analysis: Analysis) -> AnalysisDetailResponse
 
 
 def build_simulation_run_response(run: SimulationRun, analysis: Analysis) -> SimulationRunResponse:
-    scenario_lookup = {scenario.id: scenario for scenario in analysis.scenarios}
-    raw_summary = run.assumptions_json.get("summary")
-    if raw_summary:
-        summary = ScenarioSimulationSummary(
-            scenario_id=run.scenario_id,
-            scenario_title=scenario_lookup[run.scenario_id].title,
-            **raw_summary,
-        )
-    else:
-        summary = _rebuild_summary(run, analysis)
+    summary = _rebuild_summary(run, analysis)
     return SimulationRunResponse(
         id=run.id,
         analysis_id=run.analysis_id,
@@ -79,8 +72,22 @@ def build_simulation_run_response(run: SimulationRun, analysis: Analysis) -> Sim
 
 def _rebuild_summary(run: SimulationRun, analysis: Analysis) -> ScenarioSimulationSummary:
     scenario_lookup = {scenario.id: scenario for scenario in analysis.scenarios}
+    scenario_entity = scenario_lookup[run.scenario_id]
     icps = [generated_icp_from_entity(profile) for profile in analysis.icp_profiles]
     result_map = {result.icp_profile_id: result for result in run.results}
+    baseline_revenue_per_account: float | None = None
+    if analysis.extracted_product_data is not None:
+        understanding = ProductUnderstandingService().build_from_normalized(analysis.extracted_product_data.normalized_json)
+        scenario = GeneratedScenario(
+            title=scenario_entity.title,
+            scenario_type=str(scenario_entity.scenario_type),
+            description=scenario_entity.description,
+            input_parameters=dict(scenario_entity.input_parameters_json),
+        )
+        baseline_revenue_per_account = SimulationEngine().baseline_revenue_for_scenario(
+            understanding=understanding,
+            scenario=scenario,
+        )
     ordered_results = [
         SimulationComputationResult(
             reaction=result_map[profile.id].reaction,
@@ -92,19 +99,21 @@ def _rebuild_summary(run: SimulationRun, analysis: Analysis) -> ScenarioSimulati
             second_order_effects=list(result_map[profile.id].second_order_effects_json),
             driver_impacts=dict(result_map[profile.id].driver_impacts_json),
             explanation=result_map[profile.id].explanation,
-            assumptions={},
+            assumptions={"baseline_revenue_per_account": baseline_revenue_per_account}
+            if baseline_revenue_per_account is not None
+            else {},
         )
         for profile in analysis.icp_profiles
     ]
     summary = OutcomeAggregator().aggregate(
         scenario_id=run.scenario_id,
-        scenario_title=scenario_lookup[run.scenario_id].title,
+        scenario_title=scenario_entity.title,
         icps=icps,
         results=ordered_results,
     )
     return ScenarioSimulationSummary(
         scenario_id=run.scenario_id,
-        scenario_title=scenario_lookup[run.scenario_id].title,
+        scenario_title=scenario_entity.title,
         **summary.model_dump(),
     )
 
