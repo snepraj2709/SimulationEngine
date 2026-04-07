@@ -127,9 +127,40 @@ describe("AnalysisResultPage", () => {
 
     expect(screen.getByText(/preparing results for the submitted url/i)).toBeInTheDocument();
     expect(screen.getByText(/analysis workflow/i)).toBeInTheDocument();
+    expect(screen.getByText(/^queued$/i)).toBeInTheDocument();
+    expect(screen.getByText(/waiting for the extraction pipeline/i)).toBeInTheDocument();
     expect(useUIStore.getState().selectedScenarioId).toBeNull();
     expect(useUIStore.getState().selectedICPId).toBeNull();
     expect(useUIStore.getState().compareScenarioIds).toEqual([]);
+  });
+
+  it("keeps the status card for processing analyses", () => {
+    mockUseAnalysisPolling.mockReturnValue({
+      isLoading: false,
+      error: null,
+      data: {
+        id: "analysis-1",
+        input_url: "https://acme.example/",
+        normalized_url: "https://acme.example",
+        status: "processing",
+        current_stage: "product_understanding",
+        started_at: new Date().toISOString(),
+        completed_at: null,
+        error_message: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        workflow: buildWorkflow("product_understanding"),
+        extracted_product_data: null,
+        icp_profiles: [],
+        scenarios: [],
+        simulation_runs: [],
+      },
+    });
+
+    renderPage();
+
+    expect(screen.getByText(/^processing$/i)).toBeInTheDocument();
+    expect(screen.getByText(/scraping the site, inferring the product model, and generating simulation artifacts/i)).toBeInTheDocument();
   });
 
   it("renders only product understanding while the first stage is under review", () => {
@@ -186,9 +217,140 @@ describe("AnalysisResultPage", () => {
     renderPage();
 
     expect(screen.getByText(/review the product understanding first/i)).toBeInTheDocument();
+    expect(screen.getByText(/ready to review/i)).toBeInTheDocument();
     expect(screen.getByText(/proceed to generate icp profiles/i)).toBeInTheDocument();
+    expect(screen.queryByText(/ready for review/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/who moves first when the offer changes/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/default simulations worth pressure-testing/i)).not.toBeInTheDocument();
+  });
+
+  it("shows the review cue inside the ICP stage header instead of a separate status card", () => {
+    mockUseAnalysisPolling.mockReturnValue({
+      isLoading: false,
+      error: null,
+      data: {
+        id: "analysis-1",
+        input_url: "https://acme.example/",
+        normalized_url: "https://acme.example",
+        status: "awaiting_review",
+        current_stage: "icp_profiles",
+        started_at: new Date().toISOString(),
+        completed_at: null,
+        error_message: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        workflow: buildWorkflow("icp_profiles"),
+        extracted_product_data: null,
+        icp_profiles: [
+          {
+            id: "icp-1",
+            analysis_id: "analysis-1",
+            display_order: 0,
+            is_user_edited: true,
+            edited_at: new Date().toISOString(),
+            name: "Revenue operations lead",
+            description: "Owns retention tooling.",
+            use_case: "Standardize renewals.",
+            goals_json: ["Reduce churn"],
+            pain_points_json: ["Disconnected tooling"],
+            decision_drivers_json: ["team_enablement", "analytics_depth", "automation_coverage"],
+            driver_weights_json: { team_enablement: 0.4, analytics_depth: 0.35, automation_coverage: 0.25 },
+            price_sensitivity: 0.4,
+            switching_cost: 0.5,
+            alternatives_json: ["CRM"],
+            churn_threshold: -0.2,
+            retention_threshold: 0.07,
+            adoption_friction: 0.2,
+            value_perception_explanation: "Needs strong workflow breadth.",
+            segment_weight: 1,
+          },
+        ],
+        scenarios: [],
+        simulation_runs: [],
+      },
+    });
+
+    renderPage();
+
+    expect(screen.getByText(/icp 1 of 1/i)).toBeInTheDocument();
+    expect(screen.getByText(/reviewed by you/i)).toBeInTheDocument();
+    expect(screen.queryByText(/ready for review/i)).not.toBeInTheDocument();
+  });
+
+  it("shows the review cue inside the scenario stage header instead of a separate status card", () => {
+    mockUseAnalysisPolling.mockReturnValue({
+      isLoading: false,
+      error: null,
+      data: {
+        id: "analysis-1",
+        input_url: "https://acme.example/",
+        normalized_url: "https://acme.example",
+        status: "awaiting_review",
+        current_stage: "scenarios",
+        started_at: new Date().toISOString(),
+        completed_at: null,
+        error_message: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        workflow: buildWorkflow("scenarios"),
+        extracted_product_data: null,
+        icp_profiles: [],
+        scenarios: [
+          {
+            id: "scenario-1",
+            analysis_id: "analysis-1",
+            display_order: 0,
+            is_user_edited: false,
+            edited_at: null,
+            title: "Increase annual price by 9%",
+            scenario_type: "pricing_increase",
+            description: "Test renewal sensitivity.",
+            input_parameters_json: { price_change_percent: 9 },
+            input_parameters_schema: {
+              fields: [],
+            },
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+        ],
+        simulation_runs: [],
+      },
+    });
+
+    renderPage();
+
+    expect(screen.getByText(/scenario 1 of 1/i)).toBeInTheDocument();
+    expect(screen.getByText(/ready to review/i)).toBeInTheDocument();
+    expect(screen.queryByText(/ready for review/i)).not.toBeInTheDocument();
+  });
+
+  it("shows the status card for failed analyses in the main review layout", () => {
+    mockUseAnalysisPolling.mockReturnValue({
+      isLoading: false,
+      error: null,
+      data: {
+        id: "analysis-1",
+        input_url: "https://acme.example/",
+        normalized_url: "https://acme.example",
+        status: "failed",
+        current_stage: "product_understanding",
+        started_at: new Date().toISOString(),
+        completed_at: null,
+        error_message: "The provider timed out.",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        workflow: buildWorkflow("product_understanding"),
+        extracted_product_data: null,
+        icp_profiles: [],
+        scenarios: [],
+        simulation_runs: [],
+      },
+    });
+
+    renderPage();
+
+    expect(screen.getByText(/^failed$/i)).toBeInTheDocument();
+    expect(screen.getByText(/the provider timed out/i)).toBeInTheDocument();
   });
 
   it("renders the full final review once a scenario has been simulated", () => {

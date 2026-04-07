@@ -380,7 +380,9 @@ export function AnalysisResultPage() {
       <div className="space-y-8">
         {refreshAction}
         <WorkflowStepper workflow={analysis.workflow} />
-        <AnalysisStatusCard status={analysis.status} errorMessage={analysis.error_message} />
+        {analysis.status === "failed" ? (
+          <AnalysisStatusCard status={analysis.status} errorMessage={analysis.error_message} />
+        ) : null}
 
         {stage === "product_understanding" && analysis.extracted_product_data ? (
           <ProductUnderstandingStage
@@ -640,6 +642,7 @@ function ProductUnderstandingStage({
         eyebrow="Step 1"
         title="Review the product understanding first"
         body="Next: generate ICP profiles from the reviewed product understanding."
+        reviewStateLabel={data.is_user_edited ? "Reviewed by you" : "Ready to review"}
         actionLabel={editing ? "Cancel" : "Edit"}
         onAction={editing ? onCancelEdit : onStartEdit}
         statusBadge={
@@ -760,6 +763,7 @@ function ICPReviewStage({
         eyebrow="Step 2"
         title={`ICP ${currentIndex + 1} of ${total}`}
         body="Review each profile one at a time. Next: generate suggested scenarios from the reviewed ICP set."
+        reviewStateLabel={icp.is_user_edited ? "Reviewed by you" : "Ready to review"}
         actionLabel={editing ? "Cancel" : "Edit"}
         onAction={editing ? onCancelEdit : onStartEdit}
         statusBadge={
@@ -964,6 +968,7 @@ function ScenarioReviewStage({
         eyebrow="Step 3"
         title={`Scenario ${currentIndex + 1} of ${total}`}
         body="Review each suggested scenario before opening the decision flow. Next: pick one scenario to run first."
+        reviewStateLabel={scenario.is_user_edited ? "Reviewed by you" : "Ready to review"}
         actionLabel={editing ? "Cancel" : "Edit"}
         onAction={editing ? onCancelEdit : onStartEdit}
         statusBadge={
@@ -1129,6 +1134,7 @@ function SectionHeader({
   eyebrow,
   title,
   body,
+  reviewStateLabel,
   actionLabel,
   onAction,
   actionPending = false,
@@ -1137,6 +1143,7 @@ function SectionHeader({
   eyebrow: string;
   title: string;
   body: string;
+  reviewStateLabel?: string;
   actionLabel?: string;
   onAction?: () => void;
   actionPending?: boolean;
@@ -1146,7 +1153,15 @@ function SectionHeader({
     <section className="panel p-5">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{eyebrow}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{eyebrow}</p>
+            {reviewStateLabel ? (
+              <>
+                <span aria-hidden className="h-1 w-1 rounded-full bg-slate-300" />
+                <p className="text-xs font-medium text-slate-500">{reviewStateLabel}</p>
+              </>
+            ) : null}
+          </div>
           <h2 className="mt-2 text-2xl font-semibold text-slate-950">{title}</h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">{body}</p>
         </div>
