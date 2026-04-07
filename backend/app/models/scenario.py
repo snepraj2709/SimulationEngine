@@ -1,6 +1,7 @@
 import enum
+from datetime import datetime
 
-from sqlalchemy import ForeignKey, Index, JSON, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -25,6 +26,9 @@ class Scenario(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     scenario_type: Mapped[ScenarioType] = mapped_column(String(64), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     input_parameters_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    display_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    is_user_edited: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     analysis = relationship("Analysis", back_populates="scenarios")
     simulation_runs = relationship("SimulationRun", back_populates="scenario", cascade="all, delete-orphan")

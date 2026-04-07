@@ -1,6 +1,13 @@
-export type AnalysisStatus = "queued" | "processing" | "completed" | "failed";
+export type AnalysisStatus = "queued" | "processing" | "awaiting_review" | "completed" | "failed";
 export type Reaction = "retain" | "upgrade" | "downgrade" | "churn";
 export type FeedbackType = "thumbs_up" | "thumbs_down";
+export type WorkflowStage =
+  | "product_understanding"
+  | "icp_profiles"
+  | "scenarios"
+  | "decision_flow"
+  | "final_review";
+export type WorkflowStepStatus = "not_started" | "processing" | "awaiting_review" | "completed" | "failed" | "stale";
 
 export interface User {
   id: string;
@@ -21,6 +28,7 @@ export interface AnalysisListItem {
   input_url: string;
   normalized_url: string;
   status: AnalysisStatus;
+  current_stage: WorkflowStage;
   created_at: string;
   completed_at: string | null;
   error_message: string | null;
@@ -58,11 +66,16 @@ export interface ExtractedProductData {
     warnings: string[];
   };
   confidence_score: number;
+  is_user_edited: boolean;
+  edited_at: string | null;
 }
 
 export interface ICPProfile {
   id: string;
   analysis_id: string;
+  display_order: number;
+  is_user_edited: boolean;
+  edited_at: string | null;
   name: string;
   description: string;
   use_case: string;
@@ -80,13 +93,33 @@ export interface ICPProfile {
   segment_weight: number;
 }
 
+export interface ScenarioInputField {
+  key: string;
+  label: string;
+  input_type: "text" | "number";
+  required: boolean;
+  minimum: number | null;
+  maximum: number | null;
+  step: number | null;
+  placeholder: string | null;
+  helper_text: string | null;
+}
+
+export interface ScenarioInputSchema {
+  fields: ScenarioInputField[];
+}
+
 export interface Scenario {
   id: string;
   analysis_id: string;
+  display_order: number;
+  is_user_edited: boolean;
+  edited_at: string | null;
   title: string;
   scenario_type: string;
   description: string;
   input_parameters_json: Record<string, unknown>;
+  input_parameters_schema: ScenarioInputSchema;
   created_at: string;
   updated_at: string;
 }
@@ -141,15 +174,36 @@ export interface AnalysisDetail {
   input_url: string;
   normalized_url: string;
   status: AnalysisStatus;
+  current_stage: WorkflowStage;
   started_at: string | null;
   completed_at: string | null;
   error_message: string | null;
   created_at: string;
   updated_at: string;
+  workflow: AnalysisWorkflow;
   extracted_product_data: ExtractedProductData | null;
   icp_profiles: ICPProfile[];
   scenarios: Scenario[];
   simulation_runs: SimulationRun[];
+}
+
+export interface WorkflowStep {
+  stage: WorkflowStage;
+  label: string;
+  status: WorkflowStepStatus;
+  is_current: boolean;
+  is_complete: boolean;
+  started_at: string | null;
+  completed_at: string | null;
+  edited: boolean;
+  error_message: string | null;
+}
+
+export interface AnalysisWorkflow {
+  current_stage: WorkflowStage;
+  next_stage: WorkflowStage | null;
+  steps: WorkflowStep[];
+  available_actions: string[];
 }
 
 export interface FeedbackPayload {

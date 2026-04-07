@@ -6,6 +6,7 @@ import {
   FeedbackEvent,
   FeedbackPayload,
   SimulationRun,
+  WorkflowStage,
 } from "@/types/api";
 
 export function listAnalyses() {
@@ -29,6 +30,96 @@ export function rerunScenario(
   payload: { input_overrides?: Record<string, unknown>; run_version?: string },
 ) {
   return apiRequest<SimulationRun>(`/analyses/${analysisId}/scenarios/${scenarioId}/simulate`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateProductUnderstanding(
+  analysisId: string,
+  payload: {
+    company_name: string;
+    product_name: string;
+    category: string;
+    subcategory: string;
+    positioning_summary: string;
+    pricing_model: string;
+    feature_clusters: string[];
+    monetization_hypothesis: string;
+    target_customer_signals: string[];
+    warnings?: string[];
+  },
+) {
+  return apiRequest<AnalysisDetail>(`/analyses/${analysisId}/product-understanding`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateIcpProfile(
+  analysisId: string,
+  icpId: string,
+  payload: {
+    name: string;
+    description: string;
+    use_case: string;
+    goals: string[];
+    pain_points: string[];
+    decision_drivers: string[];
+    driver_weights: { driver: string; weight: number }[];
+    price_sensitivity: number;
+    switching_cost: number;
+    alternatives: string[];
+    churn_threshold: number;
+    retention_threshold: number;
+    adoption_friction: number;
+    value_perception_explanation: string;
+    segment_weight: number;
+  },
+) {
+  return apiRequest<AnalysisDetail>(`/analyses/${analysisId}/icp-profiles/${icpId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateScenario(
+  analysisId: string,
+  scenarioId: string,
+  payload: {
+    title: string;
+    scenario_type: string;
+    description: string;
+    input_parameters: Record<string, unknown>;
+  },
+) {
+  return apiRequest<AnalysisDetail>(`/analyses/${analysisId}/scenarios/${scenarioId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function proceedWorkflow(
+  analysisId: string,
+  payload: {
+    expected_stage: WorkflowStage;
+    run_async?: boolean;
+  },
+) {
+  return apiRequest<AnalysisDetail>(`/analyses/${analysisId}/workflow/proceed`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function reopenWorkflow(
+  analysisId: string,
+  payload: {
+    stage: Extract<WorkflowStage, "product_understanding" | "icp_profiles" | "scenarios">;
+    entity_id?: string | null;
+  },
+) {
+  return apiRequest<AnalysisDetail>(`/analyses/${analysisId}/workflow/reopen`, {
     method: "POST",
     body: JSON.stringify(payload),
   });

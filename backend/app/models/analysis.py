@@ -2,7 +2,7 @@ import enum
 from datetime import datetime
 from typing import ClassVar
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -12,6 +12,7 @@ from app.models.mixins import TimestampMixin, UUIDPrimaryKeyMixin
 class AnalysisStatus(str, enum.Enum):
     queued = "queued"
     processing = "processing"
+    awaiting_review = "awaiting_review"
     completed = "completed"
     failed = "failed"
 
@@ -36,6 +37,8 @@ class Analysis(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         default=ACTIVE_PIPELINE_VERSION,
         nullable=False,
     )
+    current_stage: Mapped[str] = mapped_column(String(64), default="product_understanding", nullable=False)
+    workflow_state_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -11,9 +11,14 @@ const statusCopy: Record<AnalysisStatus, { label: string; body: string; tone: st
     body: "The engine is scraping the site, inferring the product model, and generating simulation artifacts.",
     tone: "border-teal-300 bg-teal-50 text-teal-700",
   },
+  awaiting_review: {
+    label: "Ready for review",
+    body: "The current stage is ready. Review it, make edits if needed, and continue when it looks right.",
+    tone: "border-indigo-300 bg-indigo-50 text-indigo-700",
+  },
   completed: {
     label: "Completed",
-    body: "The analysis finished successfully and all default scenarios are ready to inspect.",
+    body: "The analysis finished successfully and the final review is ready to inspect.",
     tone: "border-emerald-300 bg-emerald-50 text-emerald-700",
   },
   failed: {

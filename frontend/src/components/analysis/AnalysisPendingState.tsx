@@ -42,7 +42,7 @@ export function AnalysisPendingState({ url, status }: AnalysisPendingStateProps)
                 {status === "queued" ? "The request is waiting for the pipeline." : "The pipeline is extracting and generating."}
               </p>
               <p className="text-xs text-slate-500">
-                Product summary, ICPs, and scenarios will appear here when the current URL is ready.
+                The current review step will appear here as soon as it is ready.
               </p>
             </div>
           </div>

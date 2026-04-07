@@ -7,6 +7,9 @@ import { ICPProfile } from "@/types/api";
 const icp: ICPProfile = {
   id: "icp-1",
   analysis_id: "analysis-1",
+  display_order: 0,
+  is_user_edited: false,
+  edited_at: null,
   name: "Evaluation skeptic",
   description: "Needs proof before committing.",
   use_case: "Comparing the offer against alternatives.",

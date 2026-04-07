@@ -11,6 +11,8 @@ from app.core.config import get_settings
 from app.core.exceptions import AppException
 from app.core.logging import get_logger
 from app.models.scenario import ScenarioType
+from app.schemas.product import ProductUnderstandingUpdateRequest
+from app.schemas.simulation import ICPProfileUpdateRequest, ScenarioUpdateRequest
 from app.services.domain_types import GeneratedICP, GeneratedScenario, ProductUnderstanding, ScrapeResult
 from app.utils.text import dedupe_preserve_order, truncate_text
 
@@ -153,6 +155,18 @@ class AnalysisArtifactsResponse(BaseModel):
     scenarios: list[GeneratedScenarioResponse] = Field(min_length=3, max_length=3)
 
 
+class ICPArtifactsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    icps: list[GeneratedICPResponse] = Field(min_length=3, max_length=5)
+
+
+class ScenarioArtifactsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scenarios: list[GeneratedScenarioResponse] = Field(min_length=3, max_length=3)
+
+
 class OpenAIAnalysisService:
     def __init__(self, client: AsyncOpenAI | None = None, model: str | None = None) -> None:
         self._client = client
@@ -174,21 +188,48 @@ class OpenAIAnalysisService:
         payload = self._extract_parsed_output(response, stage="product understanding")
         return self._normalize_product_understanding(payload, scrape_result)
 
+    async def generate_icps(
+        self,
+        understanding: ProductUnderstanding,
+        *,
+        user_identifier: str,
+    ) -> list[GeneratedICP]:
+        response = await self._call_with_retry(
+            input_payload=self._stage_two_input(understanding),
+            instructions=self._stage_two_instructions(),
+            text_format=ICPArtifactsResponse,
+            max_output_tokens=3600,
+            user_identifier=user_identifier,
+        )
+        payload = self._extract_parsed_output(response, stage="ICP generation")
+        return self._normalize_icp_artifacts(payload)
+
+    async def generate_scenarios(
+        self,
+        understanding: ProductUnderstanding,
+        icps: list[GeneratedICP],
+        *,
+        user_identifier: str,
+    ) -> list[GeneratedScenario]:
+        response = await self._call_with_retry(
+            input_payload=self._stage_three_input(understanding, icps),
+            instructions=self._stage_three_instructions(),
+            text_format=ScenarioArtifactsResponse,
+            max_output_tokens=3200,
+            user_identifier=user_identifier,
+        )
+        payload = self._extract_parsed_output(response, stage="scenario generation")
+        return self._normalize_scenario_artifacts(payload)
+
     async def generate_icps_and_scenarios(
         self,
         understanding: ProductUnderstanding,
         *,
         user_identifier: str,
     ) -> tuple[list[GeneratedICP], list[GeneratedScenario]]:
-        response = await self._call_with_retry(
-            input_payload=self._stage_two_input(understanding),
-            instructions=self._stage_two_instructions(),
-            text_format=AnalysisArtifactsResponse,
-            max_output_tokens=4800,
-            user_identifier=user_identifier,
-        )
-        payload = self._extract_parsed_output(response, stage="ICP and scenario generation")
-        return self._normalize_analysis_artifacts(payload)
+        icps = await self.generate_icps(understanding, user_identifier=user_identifier)
+        scenarios = await self.generate_scenarios(understanding, icps, user_identifier=user_identifier)
+        return icps, scenarios
 
     async def _call_with_retry(
         self,
@@ -314,12 +355,33 @@ class OpenAIAnalysisService:
 
     def _stage_two_instructions(self) -> str:
         return (
-            "Generate structured ICPs and scenario suggestions for the supplied product understanding. "
-            "Return 3 to 5 ICPs and exactly 3 scenarios. "
+            "Generate structured ICP profiles for the supplied product understanding. "
+            "Return 3 to 5 ICPs. "
             "All ICP decision drivers must come only from the allowed decision driver vocabulary. "
+            "Give each ICP a coherent weight distribution and segment weight, but do not worry about exact normalization because the application will normalize numeric fields."
+        )
+
+    def _stage_three_input(self, understanding: ProductUnderstanding, icps: list[GeneratedICP]) -> list[dict[str, str]]:
+        return [
+            {
+                "role": "user",
+                "content": json.dumps(
+                    {
+                        "product_understanding": understanding.model_dump(exclude={"normalized_json"}),
+                        "icps": [icp.model_dump() for icp in icps],
+                        "allowed_scenario_types": [item.value for item in ScenarioType],
+                    },
+                    ensure_ascii=True,
+                ),
+            }
+        ]
+
+    def _stage_three_instructions(self) -> str:
+        return (
+            "Generate exactly 3 structured scenario suggestions for the supplied product understanding and reviewed ICPs. "
             "All scenario types must come only from the allowed scenario types. "
             "Make the scenarios realistic for the provided product and avoid any Netflix-specific assumptions unless the input explicitly supports them. "
-            "Give each ICP a coherent weight distribution and segment weight, but do not worry about exact normalization because the application will normalize numeric fields."
+            "Return the scenario title, type, concise description, and typed input parameters only."
         )
 
     def _normalize_product_understanding(
@@ -364,14 +426,146 @@ class OpenAIAnalysisService:
         self,
         payload: AnalysisArtifactsResponse,
     ) -> tuple[list[GeneratedICP], list[GeneratedScenario]]:
+        return self._normalize_icp_artifacts(payload), self._normalize_scenario_artifacts(payload)
+
+    def _normalize_icp_artifacts(
+        self,
+        payload: AnalysisArtifactsResponse | ICPArtifactsResponse,
+    ) -> list[GeneratedICP]:
         icps = [self._normalize_icp(item) for item in payload.icps]
         if len(icps) < 3:
             raise AppException(422, "openai_invalid_output", "The analysis provider returned too few ICPs.")
         self._normalize_segment_weights(icps)
+        return icps
+
+    def _normalize_scenario_artifacts(
+        self,
+        payload: AnalysisArtifactsResponse | ScenarioArtifactsResponse,
+    ) -> list[GeneratedScenario]:
         scenarios = [self._normalize_scenario(item) for item in payload.scenarios]
         if len(scenarios) != 3:
             raise AppException(422, "openai_invalid_output", "The analysis provider must return exactly 3 scenarios.")
-        return icps, scenarios
+        return scenarios
+
+    def normalize_product_understanding_update(
+        self,
+        payload: ProductUnderstandingUpdateRequest,
+        *,
+        existing: ProductUnderstanding,
+    ) -> ProductUnderstanding:
+        understanding = ProductUnderstanding(
+            company_name=truncate_text(payload.company_name.strip() or existing.company_name, 120),
+            product_name=truncate_text(payload.product_name.strip() or existing.product_name, 120),
+            category=truncate_text(payload.category.strip() or existing.category, 120),
+            subcategory=truncate_text(payload.subcategory.strip() or existing.subcategory, 120),
+            positioning_summary=truncate_text(payload.positioning_summary.strip() or existing.positioning_summary, 240),
+            pricing_model=truncate_text(payload.pricing_model.strip() or existing.pricing_model, 64),
+            feature_clusters=self._normalize_string_list(payload.feature_clusters, limit=6)
+            or existing.feature_clusters,
+            monetization_hypothesis=truncate_text(
+                payload.monetization_hypothesis.strip() or existing.monetization_hypothesis,
+                220,
+            ),
+            target_customer_signals=self._normalize_string_list(payload.target_customer_signals, limit=6)
+            or existing.target_customer_signals,
+            confidence_score=existing.confidence_score,
+            confidence_scores=dict(existing.confidence_scores),
+            warnings=self._normalize_string_list(payload.warnings, limit=6),
+            raw_extracted_json=dict(existing.raw_extracted_json),
+        )
+        understanding.normalized_json = understanding.model_dump()
+        return understanding
+
+    def normalize_icp_update(self, payload: ICPProfileUpdateRequest) -> GeneratedICP:
+        decision_drivers = self._normalize_string_list(payload.decision_drivers, limit=6)
+        decision_drivers = [driver for driver in decision_drivers if driver in ALLOWED_DECISION_DRIVERS]
+        if len(decision_drivers) < 3:
+            raise AppException(422, "invalid_icp_payload", "Each ICP must include at least 3 valid decision drivers.")
+
+        driver_weights: dict[str, float] = {}
+        for item in payload.driver_weights:
+            if item.driver in decision_drivers and item.driver not in driver_weights:
+                driver_weights[item.driver] = max(0.0, float(item.weight))
+        for driver in decision_drivers:
+            driver_weights.setdefault(driver, 0.0)
+        driver_weights = self._normalize_weights(driver_weights)
+
+        return GeneratedICP(
+            name=truncate_text(payload.name.strip(), 120),
+            description=truncate_text(payload.description.strip(), 220),
+            use_case=truncate_text(payload.use_case.strip(), 180),
+            goals=self._normalize_string_list(payload.goals, limit=6),
+            pain_points=self._normalize_string_list(payload.pain_points, limit=6),
+            decision_drivers=decision_drivers,
+            driver_weights=driver_weights,
+            price_sensitivity=self._clamp(payload.price_sensitivity, 0.0, 1.0),
+            switching_cost=self._clamp(payload.switching_cost, 0.0, 1.0),
+            alternatives=self._normalize_string_list(payload.alternatives, limit=6),
+            churn_threshold=self._clamp(payload.churn_threshold, -0.35, -0.05),
+            retention_threshold=self._clamp(payload.retention_threshold, 0.02, 0.15),
+            adoption_friction=self._clamp(payload.adoption_friction, 0.0, 1.0),
+            value_perception_explanation=truncate_text(payload.value_perception_explanation.strip(), 220),
+            segment_weight=max(0.01, float(payload.segment_weight)),
+        )
+
+    def normalize_scenario_update(self, payload: ScenarioUpdateRequest) -> GeneratedScenario:
+        parameters = {key: value for key, value in payload.input_parameters.items() if value is not None}
+        scenario_type = payload.scenario_type
+
+        if scenario_type not in {item.value for item in ScenarioType}:
+            raise AppException(422, "invalid_scenario_payload", "Scenario type is not supported.")
+
+        if scenario_type == ScenarioType.pricing_increase.value:
+            parameters["price_change_percent"] = abs(
+                self._required_float(parameters, "price_change_percent", minimum=0.1, maximum=50.0)
+            )
+        elif scenario_type == ScenarioType.pricing_decrease.value:
+            parameters["price_change_percent"] = -abs(
+                self._required_float(parameters, "price_change_percent", minimum=0.1, maximum=50.0)
+            )
+        elif scenario_type == ScenarioType.feature_removal.value:
+            parameters["removed_feature"] = self._required_string(parameters, "removed_feature")
+            parameters["feature_importance"] = self._required_float(
+                parameters,
+                "feature_importance",
+                minimum=0.05,
+                maximum=1.0,
+            )
+        elif scenario_type == ScenarioType.premium_feature_addition.value:
+            parameters["premium_feature"] = self._required_string(parameters, "premium_feature")
+            if "price_change_percent" in parameters:
+                parameters["price_change_percent"] = abs(
+                    self._optional_float(parameters, "price_change_percent", minimum=0.0, maximum=50.0)
+                )
+        elif scenario_type == ScenarioType.bundling.value:
+            parameters["bundle_name"] = self._required_string(parameters, "bundle_name")
+            if "bundle_price_change_percent" in parameters:
+                parameters["bundle_price_change_percent"] = abs(
+                    self._optional_float(parameters, "bundle_price_change_percent", minimum=0.0, maximum=50.0)
+                )
+        elif scenario_type == ScenarioType.unbundling.value:
+            parameters["service_name"] = self._required_string(parameters, "service_name")
+            if "price_change_percent" in parameters:
+                parameters["price_change_percent"] = -abs(
+                    self._optional_float(parameters, "price_change_percent", minimum=0.0, maximum=50.0)
+                )
+
+        if "current_price_estimate" in parameters:
+            parameters["current_price_estimate"] = max(1.0, float(parameters["current_price_estimate"]))
+
+        if "market" in parameters:
+            parameters["market"] = truncate_text(str(parameters["market"]).strip(), 64)
+        if "plan_tier" in parameters:
+            parameters["plan_tier"] = truncate_text(str(parameters["plan_tier"]).strip(), 64)
+        if "billing_period" in parameters:
+            parameters["billing_period"] = truncate_text(str(parameters["billing_period"]).strip(), 64)
+
+        return GeneratedScenario(
+            title=truncate_text(payload.title.strip(), 140),
+            scenario_type=scenario_type,
+            description=truncate_text(payload.description.strip(), 240),
+            input_parameters=parameters,
+        )
 
     def _normalize_icp(self, payload: GeneratedICPResponse) -> GeneratedICP:
         decision_drivers = self._normalize_string_list(payload.decision_drivers, limit=6)

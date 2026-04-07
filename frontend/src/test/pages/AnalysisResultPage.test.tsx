@@ -21,6 +21,7 @@ vi.mock("@/api/analyses", async () => {
         input_url: "https://acme.example/",
         normalized_url: "https://acme.example/",
         status: "queued",
+        current_stage: "product_understanding",
         created_at: new Date().toISOString(),
         completed_at: null,
         error_message: null,
@@ -49,6 +50,34 @@ function renderPage() {
       </MemoryRouter>
     </QueryClientProvider>,
   );
+}
+
+function buildWorkflow(currentStage: "product_understanding" | "icp_profiles" | "scenarios" | "decision_flow" | "final_review") {
+  const order = [
+    ["product_understanding", "Product Understanding"],
+    ["icp_profiles", "ICP Profiles"],
+    ["scenarios", "Suggested Scenarios"],
+    ["decision_flow", "Decision Flow"],
+    ["final_review", "Final Review"],
+  ] as const;
+  const currentIndex = order.findIndex(([stage]) => stage === currentStage);
+  return {
+    current_stage: currentStage,
+    next_stage: order[currentIndex + 1]?.[0] ?? null,
+    available_actions: [],
+    steps: order.map(([stage, label], index) => ({
+      stage,
+      label,
+      status:
+        index < currentIndex ? "completed" : index === currentIndex ? (currentStage === "final_review" ? "completed" : "awaiting_review") : "not_started",
+      is_current: index === currentIndex,
+      is_complete: index < currentIndex || currentStage === "final_review",
+      started_at: null,
+      completed_at: null,
+      edited: false,
+      error_message: null,
+    })),
+  };
 }
 
 describe("AnalysisResultPage", () => {
@@ -80,11 +109,13 @@ describe("AnalysisResultPage", () => {
         input_url: "https://acme.example/",
         normalized_url: "https://acme.example",
         status: "queued",
+        current_stage: "product_understanding",
         started_at: null,
         completed_at: null,
         error_message: null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
+        workflow: buildWorkflow("product_understanding"),
         extracted_product_data: null,
         icp_profiles: [],
         scenarios: [],
@@ -95,14 +126,13 @@ describe("AnalysisResultPage", () => {
     renderPage();
 
     expect(screen.getByText(/preparing results for the submitted url/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/https:\/\/acme.example/i).length).toBeGreaterThan(0);
-    expect(screen.queryByText(/who moves first when the offer changes/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/analysis workflow/i)).toBeInTheDocument();
     expect(useUIStore.getState().selectedScenarioId).toBeNull();
     expect(useUIStore.getState().selectedICPId).toBeNull();
     expect(useUIStore.getState().compareScenarioIds).toEqual([]);
   });
 
-  it("renders only the current completed analysis content", () => {
+  it("renders only product understanding while the first stage is under review", () => {
     mockUseAnalysisPolling.mockReturnValue({
       isLoading: false,
       error: null,
@@ -110,12 +140,14 @@ describe("AnalysisResultPage", () => {
         id: "analysis-1",
         input_url: "https://acme.example/",
         normalized_url: "https://acme.example",
-        status: "completed",
+        status: "awaiting_review",
+        current_stage: "product_understanding",
         started_at: new Date().toISOString(),
-        completed_at: new Date().toISOString(),
+        completed_at: null,
         error_message: null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
+        workflow: buildWorkflow("product_understanding"),
         extracted_product_data: {
           id: "product-1",
           analysis_id: "analysis-1",
@@ -142,18 +174,82 @@ describe("AnalysisResultPage", () => {
             warnings: [],
           },
           confidence_score: 0.84,
+          is_user_edited: false,
+          edited_at: null,
+        },
+        icp_profiles: [],
+        scenarios: [],
+        simulation_runs: [],
+      },
+    });
+
+    renderPage();
+
+    expect(screen.getByText(/review the product understanding first/i)).toBeInTheDocument();
+    expect(screen.getByText(/proceed to generate icp profiles/i)).toBeInTheDocument();
+    expect(screen.queryByText(/who moves first when the offer changes/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/default simulations worth pressure-testing/i)).not.toBeInTheDocument();
+  });
+
+  it("renders the full final review once a scenario has been simulated", () => {
+    mockUseAnalysisPolling.mockReturnValue({
+      isLoading: false,
+      error: null,
+      data: {
+        id: "analysis-1",
+        input_url: "https://acme.example/",
+        normalized_url: "https://acme.example",
+        status: "completed",
+        current_stage: "final_review",
+        started_at: new Date().toISOString(),
+        completed_at: new Date().toISOString(),
+        error_message: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        workflow: buildWorkflow("final_review"),
+        extracted_product_data: {
+          id: "product-1",
+          analysis_id: "analysis-1",
+          company_name: "Acme",
+          product_name: "Acme Growth Platform",
+          category: "B2B Software",
+          subcategory: "Revenue Operations",
+          positioning_summary: "Automates onboarding and revenue expansion workflows.",
+          pricing_model: "sales_led_custom_pricing",
+          monetization_hypothesis: "Annual contracts for revenue teams.",
+          raw_extracted_json: {},
+          normalized_json: {
+            company_name: "Acme",
+            product_name: "Acme Growth Platform",
+            category: "B2B Software",
+            subcategory: "Revenue Operations",
+            positioning_summary: "Automates onboarding and revenue expansion workflows.",
+            pricing_model: "sales_led_custom_pricing",
+            feature_clusters: ["workflow automation", "renewal analytics"],
+            monetization_hypothesis: "Annual contracts for revenue teams.",
+            target_customer_signals: ["revenue teams"],
+            confidence_score: 0.84,
+            confidence_scores: { category: 0.84 },
+            warnings: [],
+          },
+          confidence_score: 0.84,
+          is_user_edited: false,
+          edited_at: null,
         },
         icp_profiles: [
           {
             id: "icp-1",
             analysis_id: "analysis-1",
+            display_order: 0,
+            is_user_edited: false,
+            edited_at: null,
             name: "Revenue operations lead",
             description: "Owns retention tooling.",
             use_case: "Standardize renewals.",
             goals_json: ["Reduce churn"],
             pain_points_json: ["Disconnected tooling"],
-            decision_drivers_json: ["team_enablement", "analytics_depth"],
-            driver_weights_json: { team_enablement: 0.6, analytics_depth: 0.4 },
+            decision_drivers_json: ["team_enablement", "analytics_depth", "automation_coverage"],
+            driver_weights_json: { team_enablement: 0.4, analytics_depth: 0.35, automation_coverage: 0.25 },
             price_sensitivity: 0.4,
             switching_cost: 0.5,
             alternatives_json: ["CRM"],
@@ -168,24 +264,57 @@ describe("AnalysisResultPage", () => {
           {
             id: "scenario-1",
             analysis_id: "analysis-1",
+            display_order: 0,
+            is_user_edited: false,
+            edited_at: null,
             title: "Increase annual price by 9%",
             scenario_type: "pricing_increase",
             description: "Test renewal sensitivity.",
             input_parameters_json: { price_change_percent: 9 },
+            input_parameters_schema: {
+              fields: [],
+            },
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           },
         ],
-        simulation_runs: [],
+        simulation_runs: [
+          {
+            id: "run-1",
+            analysis_id: "analysis-1",
+            scenario_id: "scenario-1",
+            run_version: "1",
+            engine_version: "utility-v1",
+            assumptions_json: {},
+            created_at: new Date().toISOString(),
+            results: [],
+            summary: {
+              scenario_id: "scenario-1",
+              scenario_title: "Increase annual price by 9%",
+              projected_retention_pct: 75,
+              projected_downgrade_pct: 15,
+              projected_upgrade_pct: 10,
+              projected_churn_pct: 0,
+              estimated_revenue_delta_pct: 18,
+              weighted_revenue_delta: 1200,
+              perception_shift_score: 0.2,
+              perception_shift_label: "Positive",
+              highest_risk_icps: ["Revenue operations lead"],
+              top_negative_drivers: ["price_affordability"],
+              top_positive_drivers: ["analytics_depth"],
+              second_order_effects: ["renewal scrutiny increases"],
+            },
+          },
+        ],
       },
     });
 
     renderPage();
 
-    expect(screen.getAllByText(/acme growth platform/i).length).toBeGreaterThan(0);
-    expect(screen.getByText(/revenue operations lead/i)).toBeInTheDocument();
-    expect(screen.getByText(/increase annual price by 9%/i)).toBeInTheDocument();
-    expect(screen.queryByText(/preparing results for the submitted url/i)).not.toBeInTheDocument();
+    expect(screen.getAllByText(/soft refresh from here/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/who moves first when the offer changes/i)).toBeInTheDocument();
+    expect(screen.getByText(/default simulations worth pressure-testing/i)).toBeInTheDocument();
+    expect(screen.getByText(/retention, downgrade, upgrade, churn, and revenue movement/i)).toBeInTheDocument();
   });
 
   it("shows a hard refresh button and reruns the current URL with force refresh", async () => {
@@ -200,11 +329,13 @@ describe("AnalysisResultPage", () => {
         input_url: "https://acme.example/",
         normalized_url: "https://acme.example/",
         status: "completed",
+        current_stage: "final_review",
         started_at: new Date().toISOString(),
         completed_at: new Date().toISOString(),
         error_message: null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
+        workflow: buildWorkflow("final_review"),
         extracted_product_data: null,
         icp_profiles: [],
         scenarios: [],

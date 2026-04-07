@@ -10,10 +10,19 @@ from app.db.session import get_db, get_session_factory
 from app.models.analysis import AnalysisStatus
 from app.models.user import User
 from app.repositories.analysis_repository import AnalysisRepository
-from app.schemas.analysis import AnalysisCreateRequest, AnalysisCreateResponse, AnalysisDetailResponse, AnalysisListItemResponse
-from app.schemas.simulation import SimulateScenarioRequest, SimulationRunResponse
+from app.schemas.analysis import (
+    AnalysisCreateRequest,
+    AnalysisCreateResponse,
+    AnalysisDetailResponse,
+    AnalysisListItemResponse,
+    WorkflowProceedRequest,
+    WorkflowReopenRequest,
+)
+from app.schemas.product import ProductUnderstandingUpdateRequest
+from app.schemas.simulation import ICPProfileUpdateRequest, ScenarioUpdateRequest, SimulateScenarioRequest, SimulationRunResponse
 from app.services.analysis_cloner import AnalysisCloner
 from app.services.analysis_pipeline import AnalysisPipelineService
+from app.services.analysis_workflow import mark_processing
 from app.services.presenters import (
     build_analysis_create_response,
     build_analysis_detail_response,
@@ -29,6 +38,14 @@ async def _process_analysis_background(analysis_id: str) -> None:
     session = get_session_factory()()
     try:
         await AnalysisPipelineService(session).process_analysis(analysis_id)
+    finally:
+        session.close()
+
+
+async def _advance_analysis_background(analysis_id: str, expected_stage: str) -> None:
+    session = get_session_factory()()
+    try:
+        await AnalysisPipelineService(session).advance_analysis(analysis_id, expected_stage=expected_stage)  # type: ignore[arg-type]
     finally:
         session.close()
 
@@ -49,6 +66,7 @@ async def create_analysis(
         if existing_for_user and existing_for_user.status in {
             AnalysisStatus.queued.value,
             AnalysisStatus.processing.value,
+            AnalysisStatus.awaiting_review.value,
             AnalysisStatus.completed.value,
         }:
             return build_analysis_create_response(existing_for_user, reused=True)
@@ -125,8 +143,10 @@ async def simulate_scenario(
     scenario = next((item for item in analysis.scenarios if item.id == scenario_id), None)
     if scenario is None:
         raise AppException(404, "scenario_not_found", "Scenario not found for this analysis.")
-    if analysis.status != AnalysisStatus.completed.value:
-        raise AppException(409, "analysis_not_ready", "Simulation cannot run until analysis is complete.")
+    if analysis.current_stage not in {"decision_flow", "final_review"}:
+        raise AppException(409, "analysis_not_ready", "Simulation cannot run until decision flow is available.")
+    if analysis.status not in {AnalysisStatus.awaiting_review.value, AnalysisStatus.completed.value}:
+        raise AppException(409, "analysis_not_ready", "Simulation cannot run while the analysis is processing.")
 
     service = AnalysisPipelineService(session)
     run = await service.rerun_scenario(
@@ -139,3 +159,116 @@ async def simulate_scenario(
     assert refreshed is not None
     refreshed_run = next(item for item in refreshed.simulation_runs if item.id == run.id)
     return build_simulation_run_response(refreshed_run, refreshed)
+
+
+@router.patch("/{analysis_id}/product-understanding", response_model=AnalysisDetailResponse)
+def update_product_understanding(
+    analysis_id: str,
+    payload: ProductUnderstandingUpdateRequest,
+    session: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> AnalysisDetailResponse:
+    repository = AnalysisRepository(session)
+    analysis = repository.get_by_id_for_user(analysis_id, user.id)
+    if analysis is None:
+        raise AppException(404, "analysis_not_found", "Analysis not found.")
+    updated = AnalysisPipelineService(session).update_product_understanding(analysis=analysis, payload=payload)
+    refreshed = repository.get_by_id_for_user(updated.id, user.id)
+    assert refreshed is not None
+    return build_analysis_detail_response(refreshed)
+
+
+@router.patch("/{analysis_id}/icp-profiles/{icp_id}", response_model=AnalysisDetailResponse)
+def update_icp_profile(
+    analysis_id: str,
+    icp_id: str,
+    payload: ICPProfileUpdateRequest,
+    session: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> AnalysisDetailResponse:
+    repository = AnalysisRepository(session)
+    analysis = repository.get_by_id_for_user(analysis_id, user.id)
+    if analysis is None:
+        raise AppException(404, "analysis_not_found", "Analysis not found.")
+    updated = AnalysisPipelineService(session).update_icp_profile(analysis=analysis, icp_id=icp_id, payload=payload)
+    refreshed = repository.get_by_id_for_user(updated.id, user.id)
+    assert refreshed is not None
+    return build_analysis_detail_response(refreshed)
+
+
+@router.patch("/{analysis_id}/scenarios/{scenario_id}", response_model=AnalysisDetailResponse)
+def update_scenario(
+    analysis_id: str,
+    scenario_id: str,
+    payload: ScenarioUpdateRequest,
+    session: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> AnalysisDetailResponse:
+    repository = AnalysisRepository(session)
+    analysis = repository.get_by_id_for_user(analysis_id, user.id)
+    if analysis is None:
+        raise AppException(404, "analysis_not_found", "Analysis not found.")
+    updated = AnalysisPipelineService(session).update_scenario(analysis=analysis, scenario_id=scenario_id, payload=payload)
+    refreshed = repository.get_by_id_for_user(updated.id, user.id)
+    assert refreshed is not None
+    return build_analysis_detail_response(refreshed)
+
+
+@router.post("/{analysis_id}/workflow/proceed", response_model=AnalysisDetailResponse)
+async def proceed_workflow(
+    analysis_id: str,
+    payload: WorkflowProceedRequest,
+    background_tasks: BackgroundTasks,
+    session: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> AnalysisDetailResponse:
+    repository = AnalysisRepository(session)
+    analysis = repository.get_by_id_for_user(analysis_id, user.id)
+    if analysis is None:
+        raise AppException(404, "analysis_not_found", "Analysis not found.")
+
+    if payload.run_async and payload.expected_stage in {"product_understanding", "icp_profiles"}:
+        service = AnalysisPipelineService(session)
+        if analysis.current_stage != payload.expected_stage:
+            raise AppException(
+                409,
+                "workflow_stage_mismatch",
+                f"Analysis is currently at '{analysis.current_stage}', not '{payload.expected_stage}'.",
+            )
+        analysis.current_stage = payload.expected_stage
+        analysis.workflow_state_json = mark_processing(analysis.workflow_state_json, payload.expected_stage)
+        service.repository.mark_processing(analysis)
+        session.commit()
+        background_tasks.add_task(_advance_analysis_background, analysis_id, payload.expected_stage)
+        refreshed = repository.get_by_id_for_user(analysis_id, user.id)
+        assert refreshed is not None
+        return build_analysis_detail_response(refreshed)
+
+    updated = await AnalysisPipelineService(session).advance_analysis(
+        analysis_id,
+        expected_stage=payload.expected_stage,
+    )
+    refreshed = repository.get_by_id_for_user(updated.id, user.id)
+    assert refreshed is not None
+    return build_analysis_detail_response(refreshed)
+
+
+@router.post("/{analysis_id}/workflow/reopen", response_model=AnalysisDetailResponse)
+def reopen_workflow(
+    analysis_id: str,
+    payload: WorkflowReopenRequest,
+    session: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> AnalysisDetailResponse:
+    repository = AnalysisRepository(session)
+    analysis = repository.get_by_id_for_user(analysis_id, user.id)
+    if analysis is None:
+        raise AppException(404, "analysis_not_found", "Analysis not found.")
+    updated = AnalysisPipelineService(session).reopen_stage(
+        analysis=analysis,
+        stage=payload.stage,
+        entity_id=payload.entity_id,
+    )
+    refreshed = repository.get_by_id_for_user(updated.id, user.id)
+    assert refreshed is not None
+    return build_analysis_detail_response(refreshed)

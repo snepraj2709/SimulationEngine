@@ -1,4 +1,6 @@
-from sqlalchemy import Float, ForeignKey, JSON, Text
+from datetime import datetime
+
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, JSON, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -19,5 +21,7 @@ class ExtractedProductData(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     raw_extracted_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     normalized_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     confidence_score: Mapped[float] = mapped_column(Float, nullable=False)
+    is_user_edited: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     analysis = relationship("Analysis", back_populates="extracted_product_data")

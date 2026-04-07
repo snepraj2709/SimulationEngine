@@ -12,6 +12,9 @@ ReactionLiteral = Literal["retain", "upgrade", "downgrade", "churn"]
 class ICPProfileResponse(ORMModel):
     id: str
     analysis_id: str
+    display_order: int
+    is_user_edited: bool
+    edited_at: datetime | None
     name: str
     description: str
     use_case: str
@@ -29,13 +32,33 @@ class ICPProfileResponse(ORMModel):
     segment_weight: float
 
 
+class ScenarioInputFieldResponse(BaseModel):
+    key: str
+    label: str
+    input_type: Literal["text", "number"]
+    required: bool
+    minimum: float | None = None
+    maximum: float | None = None
+    step: float | None = None
+    placeholder: str | None = None
+    helper_text: str | None = None
+
+
+class ScenarioInputSchemaResponse(BaseModel):
+    fields: list[ScenarioInputFieldResponse] = Field(default_factory=list)
+
+
 class ScenarioResponse(ORMModel):
     id: str
     analysis_id: str
+    display_order: int
+    is_user_edited: bool
+    edited_at: datetime | None
     title: str
     scenario_type: str
     description: str
     input_parameters_json: dict
+    input_parameters_schema: ScenarioInputSchemaResponse
     created_at: datetime
     updated_at: datetime
 
@@ -94,3 +117,32 @@ class DriverImpactBreakdown(BaseModel):
     driver: str
     impact: float
 
+
+class DriverWeightUpdateRequest(BaseModel):
+    driver: str
+    weight: float = Field(ge=0)
+
+
+class ICPProfileUpdateRequest(BaseModel):
+    name: str
+    description: str
+    use_case: str
+    goals: list[str] = Field(min_length=1, max_length=6)
+    pain_points: list[str] = Field(min_length=1, max_length=6)
+    decision_drivers: list[str] = Field(min_length=3, max_length=6)
+    driver_weights: list[DriverWeightUpdateRequest] = Field(min_length=3, max_length=6)
+    price_sensitivity: float
+    switching_cost: float
+    alternatives: list[str] = Field(min_length=1, max_length=6)
+    churn_threshold: float
+    retention_threshold: float
+    adoption_friction: float
+    value_perception_explanation: str
+    segment_weight: float
+
+
+class ScenarioUpdateRequest(BaseModel):
+    title: str
+    scenario_type: str
+    description: str
+    input_parameters: dict = Field(default_factory=dict)

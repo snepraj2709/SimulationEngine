@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.models.analysis import Analysis, AnalysisStatus
 from app.models.simulation import SimulationRun
+from app.services.analysis_workflow import default_workflow_state, final_review_workflow_state
 
 
 class AnalysisRepository:
@@ -26,6 +27,12 @@ class AnalysisRepository:
             normalized_url=normalized_url,
             status=status.value if isinstance(status, AnalysisStatus) else status,
             pipeline_version=pipeline_version or Analysis.ACTIVE_PIPELINE_VERSION,
+            current_stage="final_review"
+            if (status.value if isinstance(status, AnalysisStatus) else status) == AnalysisStatus.completed.value
+            else "product_understanding",
+            workflow_state_json=final_review_workflow_state()
+            if (status.value if isinstance(status, AnalysisStatus) else status) == AnalysisStatus.completed.value
+            else default_workflow_state(),
         )
         self.session.add(analysis)
         self.session.flush()
@@ -99,7 +106,12 @@ class AnalysisRepository:
 
     def mark_processing(self, analysis: Analysis) -> None:
         analysis.status = AnalysisStatus.processing.value
-        analysis.started_at = datetime.now(UTC)
+        analysis.started_at = analysis.started_at or datetime.now(UTC)
+        analysis.error_message = None
+
+    def mark_awaiting_review(self, analysis: Analysis) -> None:
+        analysis.status = AnalysisStatus.awaiting_review.value
+        analysis.error_message = None
 
     def mark_completed(self, analysis: Analysis) -> None:
         analysis.status = AnalysisStatus.completed.value

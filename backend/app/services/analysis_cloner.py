@@ -8,6 +8,7 @@ from app.models.icp_profile import ICPProfile
 from app.models.scenario import Scenario
 from app.models.simulation import SimulationResult, SimulationRun
 from app.repositories.analysis_repository import AnalysisRepository
+from app.services.analysis_workflow import clone_workflow_state
 
 
 class AnalysisCloner:
@@ -23,6 +24,8 @@ class AnalysisCloner:
         )
         target.started_at = source.started_at
         target.completed_at = source.completed_at
+        target.current_stage = source.current_stage
+        target.workflow_state_json = clone_workflow_state(source.workflow_state_json)
 
         if source.extracted_product_data:
             product = source.extracted_product_data
@@ -37,6 +40,8 @@ class AnalysisCloner:
                 raw_extracted_json=deepcopy(product.raw_extracted_json),
                 normalized_json=deepcopy(product.normalized_json),
                 confidence_score=product.confidence_score,
+                is_user_edited=product.is_user_edited,
+                edited_at=product.edited_at,
             )
 
         icp_map: dict[str, ICPProfile] = {}
@@ -57,6 +62,9 @@ class AnalysisCloner:
                 adoption_friction=icp.adoption_friction,
                 value_perception_explanation=icp.value_perception_explanation,
                 segment_weight=icp.segment_weight,
+                display_order=icp.display_order,
+                is_user_edited=icp.is_user_edited,
+                edited_at=icp.edited_at,
             )
             target.icp_profiles.append(cloned_icp)
             icp_map[icp.id] = cloned_icp
@@ -68,6 +76,9 @@ class AnalysisCloner:
                 scenario_type=scenario.scenario_type,
                 description=scenario.description,
                 input_parameters_json=deepcopy(scenario.input_parameters_json),
+                display_order=scenario.display_order,
+                is_user_edited=scenario.is_user_edited,
+                edited_at=scenario.edited_at,
             )
             target.scenarios.append(cloned_scenario)
             scenario_map[scenario.id] = cloned_scenario

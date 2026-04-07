@@ -1,5 +1,6 @@
-from app.tests.factories import sample_generated_icps, sample_generated_scenarios, sample_product_understanding, sample_scrape_result
 from fastapi.testclient import TestClient
+
+from app.tests.factories import sample_generated_icps, sample_generated_scenarios, sample_product_understanding, sample_scrape_result
 
 
 def test_full_happy_path(client: TestClient, monkeypatch) -> None:
@@ -9,8 +10,11 @@ def test_full_happy_path(client: TestClient, monkeypatch) -> None:
     async def fake_understanding(self, scrape_result, *, user_identifier: str):
         return sample_product_understanding()
 
-    async def fake_artifacts(self, understanding, *, user_identifier: str):
-        return sample_generated_icps(), sample_generated_scenarios()
+    async def fake_icps(self, understanding, *, user_identifier: str):
+        return sample_generated_icps()
+
+    async def fake_scenarios(self, understanding, icps, *, user_identifier: str):
+        return sample_generated_scenarios()
 
     monkeypatch.setattr("app.services.scraper_service.ScraperService.scrape", fake_scrape)
     monkeypatch.setattr(
@@ -18,8 +22,12 @@ def test_full_happy_path(client: TestClient, monkeypatch) -> None:
         fake_understanding,
     )
     monkeypatch.setattr(
-        "app.services.llm.openai_analysis_service.OpenAIAnalysisService.generate_icps_and_scenarios",
-        fake_artifacts,
+        "app.services.llm.openai_analysis_service.OpenAIAnalysisService.generate_icps",
+        fake_icps,
+    )
+    monkeypatch.setattr(
+        "app.services.llm.openai_analysis_service.OpenAIAnalysisService.generate_scenarios",
+        fake_scenarios,
     )
 
     register = client.post(
@@ -41,8 +49,22 @@ def test_full_happy_path(client: TestClient, monkeypatch) -> None:
     assert create_analysis.status_code == 202
     analysis_id = create_analysis.json()["analysis"]["id"]
 
-    detail = client.get(f"/api/v1/analyses/{analysis_id}", headers=headers).json()
-    scenario = detail["scenarios"][0]
+    client.post(
+        f"/api/v1/analyses/{analysis_id}/workflow/proceed",
+        json={"expected_stage": "product_understanding", "run_async": False},
+        headers=headers,
+    )
+    client.post(
+        f"/api/v1/analyses/{analysis_id}/workflow/proceed",
+        json={"expected_stage": "icp_profiles", "run_async": False},
+        headers=headers,
+    )
+    scenarios = client.post(
+        f"/api/v1/analyses/{analysis_id}/workflow/proceed",
+        json={"expected_stage": "scenarios", "run_async": False},
+        headers=headers,
+    ).json()["scenarios"]
+    scenario = scenarios[0]
 
     rerun = client.post(
         f"/api/v1/analyses/{analysis_id}/scenarios/{scenario['id']}/simulate",
