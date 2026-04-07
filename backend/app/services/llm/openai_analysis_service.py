@@ -5,7 +5,7 @@ import json
 from typing import Any, Literal
 
 from openai import APIConnectionError, APIStatusError, APITimeoutError, AsyncOpenAI, InternalServerError, RateLimitError
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.core.config import get_settings
 from app.core.exceptions import AppException
@@ -79,8 +79,26 @@ class ProductUnderstandingResponse(BaseModel):
     monetization_hypothesis: str
     target_customer_signals: list[str] = Field(min_length=1, max_length=8)
     confidence_score: float = Field(ge=0, le=1)
-    confidence_scores: dict[str, float]
+    confidence_scores: "ConfidenceScoresResponse"
     warnings: list[str] = Field(default_factory=list, max_length=6)
+
+
+class ConfidenceScoresResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    company_name: float = Field(ge=0, le=1)
+    category: float = Field(ge=0, le=1)
+    pricing_model: float = Field(ge=0, le=1)
+    feature_clusters: float = Field(ge=0, le=1)
+    target_customer_signals: float = Field(ge=0, le=1)
+    positioning_summary: float = Field(ge=0, le=1)
+
+
+class DriverWeightResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    driver: DecisionDriver
+    weight: float = Field(ge=0)
 
 
 class GeneratedICPResponse(BaseModel):
@@ -92,7 +110,7 @@ class GeneratedICPResponse(BaseModel):
     goals: list[str] = Field(min_length=2, max_length=6)
     pain_points: list[str] = Field(min_length=2, max_length=6)
     decision_drivers: list[DecisionDriver] = Field(min_length=3, max_length=6)
-    driver_weights: dict[str, float]
+    driver_weights: list[DriverWeightResponse] = Field(min_length=3, max_length=6)
     price_sensitivity: float
     switching_cost: float
     alternatives: list[str] = Field(min_length=1, max_length=6)
@@ -109,7 +127,23 @@ class GeneratedScenarioResponse(BaseModel):
     title: str
     scenario_type: ScenarioType
     description: str
-    input_parameters: dict[str, Any]
+    input_parameters: "ScenarioInputParametersResponse"
+
+
+class ScenarioInputParametersResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    price_change_percent: float | None = None
+    current_price_estimate: float | None = None
+    removed_feature: str | None = None
+    feature_importance: float | None = None
+    premium_feature: str | None = None
+    bundle_name: str | None = None
+    bundle_price_change_percent: float | None = None
+    service_name: str | None = None
+    market: str | None = None
+    plan_tier: str | None = None
+    billing_period: str | None = None
 
 
 class AnalysisArtifactsResponse(BaseModel):
@@ -150,7 +184,7 @@ class OpenAIAnalysisService:
             input_payload=self._stage_two_input(understanding),
             instructions=self._stage_two_instructions(),
             text_format=AnalysisArtifactsResponse,
-            max_output_tokens=3200,
+            max_output_tokens=4800,
             user_identifier=user_identifier,
         )
         payload = self._extract_parsed_output(response, stage="ICP and scenario generation")
@@ -170,6 +204,7 @@ class OpenAIAnalysisService:
         model = self._model or settings.openai_model
         last_error: Exception | None = None
         for attempt in range(2):
+            request_max_output_tokens = max_output_tokens * (2 if attempt else 1)
             try:
                 return await client.responses.parse(
                     model=model,
@@ -177,7 +212,7 @@ class OpenAIAnalysisService:
                     instructions=instructions,
                     text_format=text_format,
                     reasoning={"effort": "medium"},
-                    max_output_tokens=max_output_tokens,
+                    max_output_tokens=request_max_output_tokens,
                     truncation="auto",
                     store=False,
                     user=user_identifier,
@@ -187,6 +222,12 @@ class OpenAIAnalysisService:
                 if attempt == 1:
                     break
                 await asyncio.sleep(0.5)
+            except ValidationError as exc:
+                last_error = exc
+                if attempt == 0:
+                    await asyncio.sleep(0.5)
+                    continue
+                raise AppException(422, "openai_invalid_output", "The analysis provider returned an invalid response.") from exc
             except APIStatusError as exc:
                 last_error = exc
                 if exc.status_code in {429, 500, 502, 503, 504} and attempt == 0:
@@ -290,7 +331,7 @@ class OpenAIAnalysisService:
         target_customer_signals = self._normalize_string_list(payload.target_customer_signals, limit=6)
         warnings = self._normalize_string_list(payload.warnings, limit=6)
         confidence_scores = {
-            key: self._clamp(payload.confidence_scores.get(key, payload.confidence_score), 0.0, 1.0)
+            key: self._clamp(getattr(payload.confidence_scores, key, payload.confidence_score), 0.0, 1.0)
             for key in _DEFAULT_CONFIDENCE_KEYS
         }
 
@@ -338,10 +379,12 @@ class OpenAIAnalysisService:
         if len(decision_drivers) < 3:
             raise AppException(422, "openai_invalid_output", "Each ICP must include at least 3 valid decision drivers.")
 
-        driver_weights = {
-            driver: max(0.0, float(payload.driver_weights.get(driver, 0.0)))
-            for driver in decision_drivers
-        }
+        driver_weights = {}
+        for item in payload.driver_weights:
+            if item.driver in decision_drivers and item.driver not in driver_weights:
+                driver_weights[item.driver] = max(0.0, float(item.weight))
+        for driver in decision_drivers:
+            driver_weights.setdefault(driver, 0.0)
         driver_weights = self._normalize_weights(driver_weights)
 
         return GeneratedICP(
@@ -363,7 +406,7 @@ class OpenAIAnalysisService:
         )
 
     def _normalize_scenario(self, payload: GeneratedScenarioResponse) -> GeneratedScenario:
-        parameters = dict(payload.input_parameters)
+        parameters = {key: value for key, value in payload.input_parameters.model_dump().items() if value is not None}
         scenario_type = payload.scenario_type.value
 
         if scenario_type == ScenarioType.pricing_increase.value:
