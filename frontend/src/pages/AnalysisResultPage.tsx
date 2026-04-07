@@ -673,7 +673,12 @@ function ProductUnderstandingStage({
               rows={4}
               onChange={(value) => onChange({ ...draft, positioning_summary: value })}
             />
-            <TextField label="Pricing model" value={draft.pricing_model} onChange={(value) => onChange({ ...draft, pricing_model: value })} />
+            <TextareaField
+              label="Pricing model"
+              value={draft.pricing_model}
+              rows={3}
+              onChange={(value) => onChange({ ...draft, pricing_model: value })}
+            />
             <TextareaField
               label="Feature clusters"
               hint="One item per line"

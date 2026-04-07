@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.core.exceptions import AppException
+from app.schemas.product import ProductUnderstandingUpdateRequest
 from app.services.llm.openai_analysis_service import (
     AnalysisArtifactsResponse,
     ConfidenceScoresResponse,
@@ -46,6 +47,105 @@ def test_normalize_product_understanding_builds_normalized_payload() -> None:
     assert understanding.normalized_json["company_name"] == "Acme"
     assert understanding.feature_clusters == ["workflow automation", "renewal analytics"]
     assert understanding.confidence_scores["pricing_model"] == pytest.approx(0.88)
+
+
+def test_normalize_product_understanding_preserves_full_editable_text_fields() -> None:
+    service = OpenAIAnalysisService()
+    long_positioning_summary = (
+        "Acme helps revenue teams automate onboarding, expansion, and lifecycle orchestration across product, sales, "
+        "and customer success with a unified workspace that connects health signals, playbooks, approvals, "
+        "stakeholder collaboration, and revenue-risk insights without forcing teams into separate point solutions."
+    )
+    long_pricing_model = (
+        "Likely SaaS subscription with a free entry option, annual volume discounts, optional premium support, "
+        "and custom enterprise pricing for larger rollouts."
+    )
+    payload = ProductUnderstandingResponse(
+        company_name="Acme",
+        product_name="Acme Growth Platform",
+        category="B2B Software",
+        subcategory="Revenue Operations",
+        positioning_summary=long_positioning_summary,
+        pricing_model=long_pricing_model,
+        feature_clusters=["workflow automation", "renewal analytics"],
+        monetization_hypothesis="Annual contracts from revenue teams.",
+        target_customer_signals=["revenue teams", "customer success leaders"],
+        confidence_score=0.88,
+        confidence_scores=ConfidenceScoresResponse(
+            company_name=0.9,
+            category=0.84,
+            pricing_model=0.88,
+            feature_clusters=0.88,
+            target_customer_signals=0.88,
+            positioning_summary=0.88,
+        ),
+        warnings=[],
+    )
+
+    understanding = service._normalize_product_understanding(payload, sample_scrape_result())
+
+    assert understanding.positioning_summary == long_positioning_summary
+    assert understanding.pricing_model == long_pricing_model
+    assert not understanding.positioning_summary.endswith("...")
+    assert not understanding.pricing_model.endswith("...")
+
+
+def test_normalize_product_understanding_update_preserves_full_editable_text_fields() -> None:
+    service = OpenAIAnalysisService()
+    existing = service._normalize_product_understanding(
+        ProductUnderstandingResponse(
+            company_name="Acme",
+            product_name="Acme Growth Platform",
+            category="B2B Software",
+            subcategory="Revenue Operations",
+            positioning_summary="Short summary",
+            pricing_model="sales_led_custom_pricing",
+            feature_clusters=["workflow automation", "renewal analytics"],
+            monetization_hypothesis="Annual contracts from revenue teams.",
+            target_customer_signals=["revenue teams", "customer success leaders"],
+            confidence_score=0.88,
+            confidence_scores=ConfidenceScoresResponse(
+                company_name=0.9,
+                category=0.84,
+                pricing_model=0.88,
+                feature_clusters=0.88,
+                target_customer_signals=0.88,
+                positioning_summary=0.88,
+            ),
+            warnings=[],
+        ),
+        sample_scrape_result(),
+    )
+    updated_positioning_summary = (
+        "Acme now positions itself as an end-to-end operating system for revenue execution, giving customer success, "
+        "sales, and finance a shared workflow for lifecycle planning, renewal forecasting, account interventions, "
+        "and expansion playbooks from one coordinated system."
+    )
+    updated_pricing_model = (
+        "Usage-aware subscription with a self-serve starting tier, team-based packaging, and custom enterprise pricing "
+        "for procurement-heavy accounts."
+    )
+
+    understanding = service.normalize_product_understanding_update(
+        ProductUnderstandingUpdateRequest(
+            company_name="Acme",
+            product_name="Acme Growth Platform",
+            category="B2B Software",
+            subcategory="Revenue Operations",
+            positioning_summary=updated_positioning_summary,
+            pricing_model=updated_pricing_model,
+            feature_clusters=["workflow automation", "renewal analytics"],
+            monetization_hypothesis="Annual contracts from revenue teams.",
+            target_customer_signals=["revenue teams", "customer success leaders"],
+            warnings=[],
+        ),
+        existing=existing,
+    )
+
+    assert understanding.positioning_summary == updated_positioning_summary
+    assert understanding.pricing_model == updated_pricing_model
+    assert not understanding.positioning_summary.endswith("...")
+    assert not understanding.pricing_model.endswith("...")
 
 
 def test_normalize_analysis_artifacts_renormalizes_weights() -> None:

@@ -14,7 +14,7 @@ from app.models.scenario import ScenarioType
 from app.schemas.product import ProductUnderstandingUpdateRequest
 from app.schemas.simulation import ICPProfileUpdateRequest, ScenarioUpdateRequest
 from app.services.domain_types import GeneratedICP, GeneratedScenario, ProductUnderstanding, ScrapeResult
-from app.utils.text import dedupe_preserve_order, truncate_text
+from app.utils.text import dedupe_preserve_order, normalize_text, truncate_text
 
 logger = get_logger(__name__)
 
@@ -402,8 +402,8 @@ class OpenAIAnalysisService:
             product_name=truncate_text(payload.product_name.strip() or payload.company_name.strip() or "Unknown Product", 120),
             category=truncate_text(payload.category.strip() or "Unknown", 120),
             subcategory=truncate_text(payload.subcategory.strip() or "General Product Website", 120),
-            positioning_summary=truncate_text(payload.positioning_summary.strip() or scrape_result.meta_description or scrape_result.title, 240),
-            pricing_model=truncate_text(payload.pricing_model.strip() or "usage_or_custom", 64),
+            positioning_summary=normalize_text(payload.positioning_summary.strip() or scrape_result.meta_description or scrape_result.title),
+            pricing_model=normalize_text(payload.pricing_model.strip() or "usage_or_custom"),
             feature_clusters=feature_clusters or ["core product workflow", "customer value delivery"],
             monetization_hypothesis=truncate_text(payload.monetization_hypothesis.strip() or "Monetization requires further validation from the public page.", 220),
             target_customer_signals=target_customer_signals or ["general product evaluators"],
@@ -458,8 +458,8 @@ class OpenAIAnalysisService:
             product_name=truncate_text(payload.product_name.strip() or existing.product_name, 120),
             category=truncate_text(payload.category.strip() or existing.category, 120),
             subcategory=truncate_text(payload.subcategory.strip() or existing.subcategory, 120),
-            positioning_summary=truncate_text(payload.positioning_summary.strip() or existing.positioning_summary, 240),
-            pricing_model=truncate_text(payload.pricing_model.strip() or existing.pricing_model, 64),
+            positioning_summary=normalize_text(payload.positioning_summary.strip() or existing.positioning_summary),
+            pricing_model=normalize_text(payload.pricing_model.strip() or existing.pricing_model),
             feature_clusters=self._normalize_string_list(payload.feature_clusters, limit=6)
             or existing.feature_clusters,
             monetization_hypothesis=truncate_text(

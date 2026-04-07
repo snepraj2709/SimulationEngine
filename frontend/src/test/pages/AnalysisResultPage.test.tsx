@@ -224,6 +224,76 @@ describe("AnalysisResultPage", () => {
     expect(screen.queryByText(/default simulations worth pressure-testing/i)).not.toBeInTheDocument();
   });
 
+  it("shows full product text in Step 1 edit mode without truncating long fields", async () => {
+    const user = userEvent.setup();
+    const longPositioningSummary =
+      "Featurebase positions itself as an all-in-one platform for customer support, feedback collection, product updates, and cross-functional follow-through with AI-assisted routing, a shared inbox, workflow automation, and centralized feedback operations for scaling teams.";
+    const longPricingModel =
+      "Likely SaaS subscription with a free entry option, annual team plans, premium feature upgrades, and custom enterprise pricing for larger rollouts.";
+
+    mockUseAnalysisPolling.mockReturnValue({
+      isLoading: false,
+      error: null,
+      data: {
+        id: "analysis-1",
+        input_url: "https://featurebase.app/",
+        normalized_url: "https://featurebase.app",
+        status: "awaiting_review",
+        current_stage: "product_understanding",
+        started_at: new Date().toISOString(),
+        completed_at: null,
+        error_message: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        workflow: buildWorkflow("product_understanding"),
+        extracted_product_data: {
+          id: "product-1",
+          analysis_id: "analysis-1",
+          company_name: "Featurebase",
+          product_name: "Featurebase",
+          category: "Customer Support and Feedback Software",
+          subcategory: "AI-powered omnichannel support and product feedback platform",
+          positioning_summary: longPositioningSummary,
+          pricing_model: longPricingModel,
+          monetization_hypothesis: "Recurring software subscriptions for support and product teams.",
+          raw_extracted_json: {},
+          normalized_json: {
+            company_name: "Featurebase",
+            product_name: "Featurebase",
+            category: "Customer Support and Feedback Software",
+            subcategory: "AI-powered omnichannel support and product feedback platform",
+            positioning_summary: longPositioningSummary,
+            pricing_model: longPricingModel,
+            feature_clusters: ["shared inbox", "feedback workflows"],
+            monetization_hypothesis: "Recurring software subscriptions for support and product teams.",
+            target_customer_signals: ["product teams", "support teams"],
+            confidence_score: 0.89,
+            confidence_scores: { category: 0.89 },
+            warnings: [],
+          },
+          confidence_score: 0.89,
+          is_user_edited: false,
+          edited_at: null,
+        },
+        icp_profiles: [],
+        scenarios: [],
+        simulation_runs: [],
+      },
+    });
+
+    renderPage();
+
+    await user.click(screen.getByRole("button", { name: /^edit$/i }));
+
+    const positioningSummaryField = screen.getByLabelText(/positioning summary/i);
+    const pricingModelField = screen.getByLabelText(/pricing model/i);
+
+    expect(positioningSummaryField).toHaveValue(longPositioningSummary);
+    expect(pricingModelField).toHaveValue(longPricingModel);
+    expect(positioningSummaryField.tagName).toBe("TEXTAREA");
+    expect(pricingModelField.tagName).toBe("TEXTAREA");
+  });
+
   it("shows the review cue inside the ICP stage header instead of a separate status card", () => {
     mockUseAnalysisPolling.mockReturnValue({
       isLoading: false,
