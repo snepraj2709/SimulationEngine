@@ -383,10 +383,12 @@ describe("AnalysisResultPage", () => {
     expect(screen.getByText(/^Goals$/i)).toBeInTheDocument();
     expect(screen.getByText(/^Pain points$/i)).toBeInTheDocument();
     expect(screen.getByText(/^Alternatives$/i)).toBeInTheDocument();
-    expect(screen.getByText(/^Segment weight$/i)).toBeInTheDocument();
+    expect(screen.getByText(/^Estimated segment share$/i)).toBeInTheDocument();
+    expect(screen.getByText(/^Retention resilience$/i)).toBeInTheDocument();
     expect(screen.getByText(/^Selected drivers$/i)).toBeInTheDocument();
     expect(screen.getByText(/^Decision driver weights$/i)).toBeInTheDocument();
     expect(screen.getByText(/spreadsheet workflow/i)).toBeInTheDocument();
+    expect(screen.getByText(/total segment share 100%/i)).toBeInTheDocument();
   });
 
   it("shows ICP edit fields in the same order as the read-only card and uses sliders for driver weights", async () => {
@@ -410,16 +412,23 @@ describe("AnalysisResultPage", () => {
       screen.getByText(/^Pain points$/),
       screen.getByText(/^Alternatives$/),
       screen.getByText(/^Value perception explanation$/),
-      screen.getByText(/^Segment weight$/),
+      screen.getByText(/^Estimated segment share$/),
       screen.getByText(/^Price sensitivity$/),
-      screen.getByText(/^Switching cost$/),
-      screen.getByText(/^Churn threshold$/),
-      screen.getByText(/^Retention threshold$/),
-      screen.getByText(/^Adoption friction$/),
+      screen.getByText(/^Switching resistance$/),
+      screen.getByText(/^Retention resilience$/),
+      screen.getByText(/^Expansion hurdle$/),
+      screen.getByText(/^Rollout effort$/),
       screen.getByText(/^Decision Drivers$/),
     ]);
 
-    expect(screen.getAllByRole("slider")).toHaveLength(3);
+    expect(screen.getByRole("spinbutton", { name: /estimated segment share/i })).toBeInTheDocument();
+    expect(screen.getByRole("slider", { name: /^Price sensitivity$/i })).toBeInTheDocument();
+    expect(screen.getByRole("slider", { name: /^Switching resistance$/i })).toBeInTheDocument();
+    expect(screen.getByRole("slider", { name: /^Retention resilience$/i })).toBeInTheDocument();
+    expect(screen.getByRole("slider", { name: /^Expansion hurdle$/i })).toBeInTheDocument();
+    expect(screen.getByRole("slider", { name: /^Rollout effort$/i })).toBeInTheDocument();
+    expect(screen.getAllByRole("slider")).toHaveLength(8);
+    expect(screen.queryByRole("spinbutton", { name: /^Price sensitivity$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("spinbutton", { name: /^Weight$/i })).not.toBeInTheDocument();
   });
 

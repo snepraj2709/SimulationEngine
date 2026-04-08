@@ -22,10 +22,20 @@ import { FeedbackBar } from "@/components/analysis/FeedbackBar";
 import { ICPCardGrid } from "@/components/analysis/ICPCardGrid";
 import { ICPDetailCard } from "@/components/analysis/ICPDetailCard";
 import {
+  clampIcpMetricUiValue,
+  formatIcpMetricPercent,
   formatDriverLabel,
+  getIcpMetricBand,
+  getIcpMetricBandStyle,
+  getIcpMetricDescription,
+  getIcpMetricLabel,
+  getIcpMetricMetadata,
+  getIcpMetricRawValue,
+  getIcpMetricUiValue,
   getDriverRankLabel,
   getDriverRankStyle,
   getEditableDriverRows,
+  type IcpTraitMetricKey,
 } from "@/components/analysis/icpDisplay";
 import { LoadingState } from "@/components/analysis/LoadingState";
 import { ProductSummaryPanel } from "@/components/analysis/ProductSummaryPanel";
@@ -57,6 +67,14 @@ const decisionDriverOptions = [
   "team_enablement",
   "budget_predictability",
   "convenience",
+] as const;
+
+const icpTraitMetricKeys: readonly IcpTraitMetricKey[] = [
+  "price_sensitivity",
+  "switching_cost",
+  "churn_threshold",
+  "retention_threshold",
+  "adoption_friction",
 ] as const;
 
 type ProductDraft = {
@@ -779,7 +797,7 @@ function ICPReviewStage({
         onAction={editing ? onCancelEdit : onStartEdit}
         statusBadge={
           <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
-            Segment weight total {segmentWeightTotal.toFixed(1)}
+            Total segment share {formatSegmentShareTotal(segmentWeightTotal)}
           </span>
         }
       />
@@ -816,13 +834,21 @@ function ICPReviewStage({
             onChange={(value) => onChange({ ...draft, value_perception_explanation: value })}
           />
 
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            <NumberField label="Segment weight" value={draft.segment_weight} min={0.01} max={1} step={0.01} onChange={(value) => onChange({ ...draft, segment_weight: value })} />
-            <NumberField label="Price sensitivity" value={draft.price_sensitivity} min={0} max={1} step={0.01} onChange={(value) => onChange({ ...draft, price_sensitivity: value })} />
-            <NumberField label="Switching cost" value={draft.switching_cost} min={0} max={1} step={0.01} onChange={(value) => onChange({ ...draft, switching_cost: value })} />
-            <NumberField label="Churn threshold" value={draft.churn_threshold} min={-0.35} max={-0.05} step={0.01} onChange={(value) => onChange({ ...draft, churn_threshold: value })} />
-            <NumberField label="Retention threshold" value={draft.retention_threshold} min={0.02} max={0.15} step={0.01} onChange={(value) => onChange({ ...draft, retention_threshold: value })} />
-            <NumberField label="Adoption friction" value={draft.adoption_friction} min={0} max={1} step={0.01} onChange={(value) => onChange({ ...draft, adoption_friction: value })} />
+          <div className="grid gap-4 lg:grid-cols-2">
+            <PercentField
+              label={getIcpMetricLabel("segment_weight")}
+              hint={getIcpMetricDescription("segment_weight")}
+              value={draft.segment_weight}
+              onChange={(value) => onChange({ ...draft, segment_weight: value })}
+            />
+            {icpTraitMetricKeys.map((metricKey) => (
+              <TraitSliderField
+                key={metricKey}
+                metricKey={metricKey}
+                rawValue={draft[metricKey]}
+                onChange={(value) => onChange({ ...draft, [metricKey]: value })}
+              />
+            ))}
           </div>
 
           <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
@@ -1226,6 +1252,41 @@ function TextareaField({
   );
 }
 
+function PercentField({
+  label,
+  value,
+  onChange,
+  hint,
+}: {
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+  hint?: string;
+}) {
+  const safeValue = getIcpMetricUiValue("segment_weight", Number.isFinite(value) ? value : 0);
+
+  return (
+    <label className="space-y-2 text-sm">
+      <span className="font-medium text-slate-700">{label}</span>
+      {hint ? <p className="text-xs text-slate-500">{hint}</p> : null}
+      <div className="relative">
+        <input
+          type="number"
+          className={cn(fieldClass, "pr-10")}
+          value={safeValue}
+          min={1}
+          max={100}
+          step={0.1}
+          onChange={(event) => onChange(getIcpMetricRawValue("segment_weight", Number(event.target.value)))}
+        />
+        <span className="pointer-events-none absolute inset-y-0 right-4 flex items-center text-sm font-medium text-slate-500">
+          %
+        </span>
+      </div>
+    </label>
+  );
+}
+
 function NumberField({
   label,
   value,
@@ -1256,6 +1317,57 @@ function NumberField({
         step={step}
         onChange={(event) => onChange(Number(event.target.value))}
       />
+    </label>
+  );
+}
+
+function TraitSliderField({
+  metricKey,
+  rawValue,
+  onChange,
+}: {
+  metricKey: IcpTraitMetricKey;
+  rawValue: number;
+  onChange: (value: number) => void;
+}) {
+  const metadata = getIcpMetricMetadata(metricKey);
+  const uiValue = Math.round(getIcpMetricUiValue(metricKey, rawValue));
+  const band = getIcpMetricBand(rawValue, metricKey);
+
+  return (
+    <label className="space-y-2 text-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <span className="font-medium text-slate-700">{metadata.label}</span>
+          <p className="mt-1 text-xs leading-5 text-slate-500">{metadata.description}</p>
+        </div>
+        <span
+          className={cn(
+            "shrink-0 rounded-full border px-3 py-1 text-xs font-semibold",
+            getIcpMetricBandStyle(band),
+          )}
+        >
+          {band}
+        </span>
+      </div>
+      <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+        <input
+          type="range"
+          min={metadata.min}
+          max={metadata.max}
+          step={metadata.step}
+          value={uiValue}
+          aria-label={metadata.label}
+          className="w-full cursor-pointer accent-slate-900"
+          onChange={(event) =>
+            onChange(getIcpMetricRawValue(metricKey, clampIcpMetricUiValue(metricKey, Number(event.target.value))))
+          }
+        />
+        <div className="mt-3 flex items-center justify-between gap-3 text-xs font-medium text-slate-500">
+          <span>{metadata.minLabel}</span>
+          <span>{metadata.maxLabel}</span>
+        </div>
+      </div>
     </label>
   );
 }
@@ -1387,6 +1499,10 @@ function clampIndex(index: number, total: number) {
 
 function roundToPercent(value: number) {
   return Math.round(value * 1000) / 1000;
+}
+
+function formatSegmentShareTotal(value: number) {
+  return formatIcpMetricPercent(value);
 }
 
 function formatKeyLabel(key: string) {

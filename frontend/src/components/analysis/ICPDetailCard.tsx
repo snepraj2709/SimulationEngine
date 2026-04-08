@@ -1,10 +1,19 @@
 import { ICPProfile } from "@/types/api";
 import { cn } from "@/lib/utils";
 import {
+  formatIcpMetricPercent,
   formatDriverLabel,
+  getIcpMetricBand,
+  getIcpMetricBandStyle,
+  getIcpMetricDescription,
+  getIcpMetricInterpretation,
+  getIcpMetricLabel,
+  getIcpMetricUiValue,
   getDriverRankLabel,
   getDriverRankStyle,
   getRankedDriverWeights,
+  icpMetricOrder,
+  isIcpTraitMetric,
   getSelectedDrivers,
 } from "@/components/analysis/icpDisplay";
 
@@ -50,12 +59,14 @@ export function ICPDetailCard({ icp, isSelected = false, onSelect }: ICPDetailCa
       />
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        <MetricPanel label="Segment weight" value={formatMetricPercent(icp.segment_weight)} />
-        <MetricPanel label="Price sensitivity" value={formatMetricDecimal(icp.price_sensitivity)} />
-        <MetricPanel label="Switching cost" value={formatMetricDecimal(icp.switching_cost)} />
-        <MetricPanel label="Churn threshold" value={formatMetricSignedDecimal(icp.churn_threshold)} />
-        <MetricPanel label="Retention threshold" value={formatMetricSignedDecimal(icp.retention_threshold)} />
-        <MetricPanel label="Adoption friction" value={formatMetricDecimal(icp.adoption_friction)} />
+        {icpMetricOrder.map((metricKey) => {
+          const value = icp[metricKey];
+          return isIcpTraitMetric(metricKey) ? (
+            <TraitMetricPanel key={metricKey} metricKey={metricKey} value={value} />
+          ) : (
+            <PercentMetricPanel key={metricKey} label={getIcpMetricLabel(metricKey)} description={getIcpMetricDescription(metricKey)} value={formatIcpMetricPercent(value)} />
+          );
+        })}
       </div>
 
       <div className="space-y-3">
@@ -158,23 +169,56 @@ function ListPanel({
   );
 }
 
-function MetricPanel({ label, value }: { label: string; value: string }) {
+function PercentMetricPanel({
+  label,
+  description,
+  value,
+}: {
+  label: string;
+  description: string;
+  value: string;
+}) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
       <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</p>
       <p className="mt-2 text-lg font-semibold text-slate-950">{value}</p>
+      <p className="mt-2 text-sm leading-6 text-slate-600">{description}</p>
     </div>
   );
 }
 
-function formatMetricDecimal(value: number) {
-  return value.toFixed(2);
-}
+function TraitMetricPanel({
+  metricKey,
+  value,
+}: {
+  metricKey: "price_sensitivity" | "switching_cost" | "churn_threshold" | "retention_threshold" | "adoption_friction";
+  value: number;
+}) {
+  const band = getIcpMetricBand(value, metricKey);
+  const uiValue = getIcpMetricUiValue(metricKey, value);
 
-function formatMetricSignedDecimal(value: number) {
-  return value > 0 ? `+${value.toFixed(2)}` : value.toFixed(2);
-}
-
-function formatMetricPercent(value: number) {
-  return `${Math.round(value * 100)}%`;
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+            {getIcpMetricLabel(metricKey)}
+          </p>
+          <p className="mt-2 text-sm leading-6 text-slate-600">{getIcpMetricDescription(metricKey)}</p>
+        </div>
+        <span
+          className={cn(
+            "shrink-0 rounded-full border px-3 py-1 text-xs font-semibold",
+            getIcpMetricBandStyle(band),
+          )}
+        >
+          {band}
+        </span>
+      </div>
+      <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-slate-200">
+        <div className="h-full rounded-full bg-slate-700" style={{ width: `${uiValue}%` }} />
+      </div>
+      <p className="mt-3 text-sm leading-6 text-slate-800">{getIcpMetricInterpretation(value, metricKey)}</p>
+    </div>
+  );
 }
