@@ -27,6 +27,7 @@ from app.services.analysis_workflow import WORKFLOW_STAGE_LABELS, WORKFLOW_STAGE
 from app.services.domain_types import GeneratedICP, GeneratedScenario, SimulationComputationResult
 from app.services.outcome_aggregator import OutcomeAggregator
 from app.services.product_understanding_service import ProductUnderstandingService
+from app.services.review_view_builder import build_icp_view_model, build_scenario_review_views
 from app.services.simulation_engine import SimulationEngine
 
 
@@ -58,6 +59,17 @@ def build_analysis_create_response(
 
 def build_analysis_detail_response(analysis: Analysis) -> AnalysisDetailResponse:
     current_stage = _analysis_current_stage(analysis)
+    understanding = (
+        ProductUnderstandingService().build_from_normalized(analysis.extracted_product_data.normalized_json)
+        if analysis.extracted_product_data
+        else None
+    )
+    ordered_profiles = sorted(analysis.icp_profiles, key=_ordered_entity_key)
+    icp_view_models = {
+        profile.id: build_icp_view_model(profile, understanding=understanding)
+        for profile in ordered_profiles
+    }
+    scenario_review_views = build_scenario_review_views(analysis)
     return AnalysisDetailResponse(
         id=analysis.id,
         input_url=analysis.input_url,
@@ -74,11 +86,11 @@ def build_analysis_detail_response(analysis: Analysis) -> AnalysisDetailResponse
         if analysis.extracted_product_data
         else None,
         icp_profiles=[
-            ICPProfileResponse.model_validate(profile)
-            for profile in sorted(analysis.icp_profiles, key=_ordered_entity_key)
+            ICPProfileResponse.model_validate(profile).model_copy(update={"view_model": icp_view_models.get(profile.id)})
+            for profile in ordered_profiles
         ],
         scenarios=[
-            build_scenario_response(scenario)
+            build_scenario_response(scenario, review_view=scenario_review_views.get(scenario.id))
             for scenario in sorted(analysis.scenarios, key=_ordered_entity_key)
         ],
         simulation_runs=[build_simulation_run_response(run, analysis) for run in analysis.simulation_runs],
@@ -194,7 +206,11 @@ def build_analysis_workflow_response(analysis: Analysis, *, current_stage: str |
     )
 
 
-def build_scenario_response(scenario: Scenario) -> ScenarioResponse:
+def build_scenario_response(
+    scenario: Scenario,
+    *,
+    review_view=None,
+) -> ScenarioResponse:
     return ScenarioResponse(
         id=scenario.id,
         analysis_id=scenario.analysis_id,
@@ -208,6 +224,7 @@ def build_scenario_response(scenario: Scenario) -> ScenarioResponse:
         input_parameters_schema=build_scenario_input_schema(str(scenario.scenario_type)),
         created_at=scenario.created_at,
         updated_at=scenario.updated_at,
+        review_view=review_view,
     )
 
 

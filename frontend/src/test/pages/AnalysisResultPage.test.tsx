@@ -583,6 +583,115 @@ describe("AnalysisResultPage", () => {
     expect(screen.queryByText(/ready for review/i)).not.toBeInTheDocument();
   });
 
+  it("renders the scenario review screen as a decision-support surface", () => {
+    mockUseAnalysisPolling.mockReturnValue({
+      isLoading: false,
+      error: null,
+      data: {
+        id: "analysis-1",
+        input_url: "https://acme.example/",
+        normalized_url: "https://acme.example",
+        status: "awaiting_review",
+        current_stage: "scenarios",
+        started_at: new Date().toISOString(),
+        completed_at: null,
+        error_message: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        workflow: buildWorkflow("scenarios"),
+        extracted_product_data: null,
+        icp_profiles: [],
+        scenarios: [
+          {
+            id: "scenario-1",
+            analysis_id: "analysis-1",
+            display_order: 0,
+            is_user_edited: false,
+            edited_at: null,
+            title: "Decrease annual price by 10%",
+            scenario_type: "pricing_decrease",
+            description: "Test whether a lower annual entry point increases evaluation among healthcare teams.",
+            input_parameters_json: { price_change_percent: 10, market: "Healthcare" },
+            input_parameters_schema: {
+              fields: [],
+            },
+            review_view: {
+              id: "scenario-1",
+              scenario_type: "pricing_decrease",
+              scenario_title: "Decrease annual price by 10%",
+              scenario_summary: "Test whether a lower annual entry point increases evaluation among healthcare teams.",
+              short_decision_statement: "Decrease annual pricing by 10% for healthcare teams.",
+              recommendation: {
+                priority_rank: 1,
+                recommendation_label: "Recommended first",
+                recommendation_reason: "Ranked #1 of 3: revenue is supportive while churn risk is neutral.",
+              },
+              expected_impact: [
+                {
+                  metric_key: "revenue",
+                  label: "Revenue",
+                  direction: "positive",
+                  min_change_percent: 4,
+                  max_change_percent: 8,
+                  confidence: "high",
+                },
+                {
+                  metric_key: "conversion",
+                  label: "Conversion",
+                  direction: "positive",
+                  min_change_percent: 10,
+                  max_change_percent: 16,
+                  confidence: "medium",
+                },
+              ],
+              why_this_might_work: [
+                "High price sensitivity means a lower entry point can change evaluation quickly.",
+              ],
+              tradeoffs: ["Lower pricing can anchor buyers to discount expectations."],
+              execution_effort: {
+                level: "low",
+                explanation: "Pricing and packaging messaging can be tested without changing core delivery.",
+              },
+              linked_icp_summary: {
+                segment_name: "Healthcare operations lead",
+                relevant_signals: [
+                  {
+                    signal_key: "priceSensitivity",
+                    label: "Price Sensitivity",
+                    value_1_to_5: 4,
+                    editable: true,
+                    derived: false,
+                    source_field: "price_sensitivity",
+                  },
+                ],
+              },
+              raw_parameters: { price_change_percent: 10, market: "Healthcare" },
+              metadata: {
+                market: "Healthcare",
+                service_name: null,
+                plan_tier: null,
+                billing_period: null,
+                scenario_tags: ["pricing", "conversion"],
+              },
+            },
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+        ],
+        simulation_runs: [],
+      },
+    });
+
+    renderPage();
+
+    expect(screen.getByText(/expected impact/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/recommended first/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/decrease annual pricing by 10% for healthcare teams/i)).toBeInTheDocument();
+    expect(screen.getByText(/why this might work/i)).toBeInTheDocument();
+    expect(screen.getByText(/secondary metadata/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /proceed to run selection/i })).toBeInTheDocument();
+  });
+
   it("shows the status card for failed analyses in the main review layout", () => {
     mockUseAnalysisPolling.mockReturnValue({
       isLoading: false,
@@ -734,7 +843,7 @@ describe("AnalysisResultPage", () => {
 
     expect(screen.getAllByText(/soft refresh from here/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/who moves first when the offer changes/i)).toBeInTheDocument();
-    expect(screen.getByText(/default simulations worth pressure-testing/i)).toBeInTheDocument();
+    expect(screen.getByText(/which decision is worth simulating first/i)).toBeInTheDocument();
     expect(screen.getByText(/retention, downgrade, upgrade, churn, and revenue movement/i)).toBeInTheDocument();
   });
 

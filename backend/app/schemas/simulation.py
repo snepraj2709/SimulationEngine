@@ -7,6 +7,71 @@ from app.schemas.common import ORMModel
 
 
 ReactionLiteral = Literal["retain", "upgrade", "downgrade", "churn"]
+SignalLevelLiteral = Literal[1, 2, 3, 4, 5]
+ConfidenceLabelLiteral = Literal["low", "medium", "high"]
+ConfidenceSourceLiteral = Literal["llm", "derived"]
+EditableControlLiteral = Literal["text", "textarea", "percentage", "dot_scale", "ranked_driver_editor"]
+ImpactSeverityLiteral = Literal["high", "medium", "low"]
+ImpactDirectionLiteral = Literal["positive", "negative", "mixed", "neutral"]
+EffortLevelLiteral = Literal["low", "medium", "high"]
+
+
+class ConfidenceIndicatorResponse(BaseModel):
+    score: float = Field(ge=0, le=1)
+    label: ConfidenceLabelLiteral
+    source: ConfidenceSourceLiteral
+
+
+class EditableFieldConfigResponse(BaseModel):
+    field: str
+    label: str
+    control: EditableControlLiteral
+    editable: bool = True
+    visible_by_default: bool = True
+    min: float | None = None
+    max: float | None = None
+
+
+class ICPBuyingLogicResponse(BaseModel):
+    buys_for: list[str] = Field(default_factory=list)
+    avoids_because: list[str] = Field(default_factory=list)
+    wins_with: list[str] = Field(default_factory=list)
+
+
+class BehavioralSignalResponse(BaseModel):
+    signal_key: str
+    label: str
+    value_1_to_5: SignalLevelLiteral
+    editable: bool
+    derived: bool = False
+    source_field: str | None = None
+
+
+class DecisionDriverViewResponse(BaseModel):
+    key: str
+    label: str
+    weight_percent: int = Field(ge=0, le=100)
+    rank: int = Field(ge=1)
+
+
+class SimulationImpactItemResponse(BaseModel):
+    title: str
+    explanation: str
+    severity: ImpactSeverityLiteral = "medium"
+
+
+class ICPViewModelResponse(BaseModel):
+    id: str
+    segment_name: str
+    segment_summary: str
+    estimated_segment_share: float = Field(ge=0, le=100)
+    confidence: ConfidenceIndicatorResponse | None = None
+    best_fit_use_case: str
+    buying_logic: ICPBuyingLogicResponse
+    behavioral_signals: list[BehavioralSignalResponse] = Field(default_factory=list)
+    decision_drivers: list[DecisionDriverViewResponse] = Field(default_factory=list)
+    simulation_impact: list[SimulationImpactItemResponse] = Field(default_factory=list)
+    editable_fields: list[EditableFieldConfigResponse] = Field(default_factory=list)
 
 
 class ICPProfileResponse(ORMModel):
@@ -30,6 +95,7 @@ class ICPProfileResponse(ORMModel):
     adoption_friction: float
     value_perception_explanation: str
     segment_weight: float
+    view_model: ICPViewModelResponse | None = None
 
 
 class ScenarioInputFieldResponse(BaseModel):
@@ -48,6 +114,55 @@ class ScenarioInputSchemaResponse(BaseModel):
     fields: list[ScenarioInputFieldResponse] = Field(default_factory=list)
 
 
+class ScenarioRecommendationResponse(BaseModel):
+    priority_rank: int = Field(ge=1)
+    recommendation_label: str
+    recommendation_reason: str
+
+
+class ScenarioExpectedImpactResponse(BaseModel):
+    metric_key: str
+    label: str
+    direction: ImpactDirectionLiteral
+    min_change_percent: float
+    max_change_percent: float
+    confidence: ConfidenceLabelLiteral | None = None
+
+
+class ScenarioExecutionEffortResponse(BaseModel):
+    level: EffortLevelLiteral
+    explanation: str
+
+
+class ScenarioLinkedICPSummaryResponse(BaseModel):
+    segment_name: str
+    relevant_signals: list[BehavioralSignalResponse] = Field(default_factory=list)
+
+
+class ScenarioMetadataResponse(BaseModel):
+    market: str | None = None
+    service_name: str | None = None
+    plan_tier: str | None = None
+    billing_period: str | None = None
+    scenario_tags: list[str] = Field(default_factory=list)
+
+
+class ScenarioReviewViewResponse(BaseModel):
+    id: str
+    scenario_type: str
+    scenario_title: str
+    scenario_summary: str
+    short_decision_statement: str
+    recommendation: ScenarioRecommendationResponse
+    expected_impact: list[ScenarioExpectedImpactResponse] = Field(default_factory=list)
+    why_this_might_work: list[str] = Field(default_factory=list)
+    tradeoffs: list[str] = Field(default_factory=list)
+    execution_effort: ScenarioExecutionEffortResponse
+    linked_icp_summary: ScenarioLinkedICPSummaryResponse | None = None
+    raw_parameters: dict = Field(default_factory=dict)
+    metadata: ScenarioMetadataResponse
+
+
 class ScenarioResponse(ORMModel):
     id: str
     analysis_id: str
@@ -61,6 +176,7 @@ class ScenarioResponse(ORMModel):
     input_parameters_schema: ScenarioInputSchemaResponse
     created_at: datetime
     updated_at: datetime
+    review_view: ScenarioReviewViewResponse | None = None
 
 
 class SimulationResultResponse(ORMModel):

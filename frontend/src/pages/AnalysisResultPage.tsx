@@ -36,7 +36,9 @@ import {
 } from "@/components/analysis/icpDisplay";
 import { LoadingState } from "@/components/analysis/LoadingState";
 import { ProductSummaryPanel } from "@/components/analysis/ProductSummaryPanel";
+import { ScenarioReviewCard } from "@/components/analysis/ScenarioReviewCard";
 import { ScenarioSuggestionList } from "@/components/analysis/ScenarioSuggestionList";
+import { getScenarioReviewModel } from "@/components/analysis/scenarioDisplay";
 import { SimulationMetricsDashboard } from "@/components/analysis/SimulationMetricsDashboard";
 import { WorkflowStepper } from "@/components/analysis/WorkflowStepper";
 import { AppShell } from "@/components/layout/AppShell";
@@ -900,18 +902,20 @@ function ScenarioReviewStage({
   onSave: () => void;
   onProceed: () => void;
 }) {
+  const review = getScenarioReviewModel(scenario);
+
   return (
     <div className="space-y-4">
       <SectionHeader
         eyebrow="Step 3"
         title={`Scenario ${currentIndex + 1} of ${total}`}
-        body="Review each suggested scenario before opening the decision flow. Next: pick one scenario to run first."
+        body="Review the modeled upside, risks, and execution effort before choosing which scenario to run first."
         reviewStateLabel={scenario.is_user_edited ? "Reviewed by you" : "Ready to review"}
-        actionLabel={editing ? "Cancel" : "Edit"}
+        actionLabel={editing ? "Cancel" : "Edit assumptions"}
         onAction={editing ? onCancelEdit : onStartEdit}
         statusBadge={
           <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
-            {scenario.scenario_type.replaceAll("_", " ")}
+            Rank #{review.recommendation.priority_rank}
           </span>
         }
       />
@@ -923,7 +927,10 @@ function ScenarioReviewStage({
             <TextareaField label="Description" value={draft.description} rows={4} onChange={(value) => onChange({ ...draft, description: value })} />
           </div>
           <div className="mt-6 rounded-3xl border border-slate-200 bg-slate-50 p-5">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Structured Inputs</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Structured inputs</p>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              These parameters drive the impact preview and recommendation logic. Keep the decision statement clear.
+            </p>
             <div className="mt-4 grid gap-4 md:grid-cols-2">
               {scenario.input_parameters_schema.fields.map((field) =>
                 field.input_type === "number" ? (
@@ -969,25 +976,22 @@ function ScenarioReviewStage({
           </div>
         </section>
       ) : (
-        <section className="panel p-6">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                {scenario.scenario_type.replaceAll("_", " ")}
-              </p>
-              <h3 className="mt-2 text-2xl font-semibold text-slate-950">{scenario.title}</h3>
-              <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">{scenario.description}</p>
-            </div>
-          </div>
-          <div className="mt-6 grid gap-3 md:grid-cols-2">
-            {Object.entries(scenario.input_parameters_json).map(([key, value]) => (
-              <div key={key} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{formatKeyLabel(key)}</p>
-                <p className="mt-2 text-sm font-medium text-slate-800">{formatParameterValue(value)}</p>
-              </div>
+        <>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700">
+              {review.recommendation.recommendation_label}
+            </span>
+            <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold capitalize text-slate-700">
+              Effort {review.execution_effort.level}
+            </span>
+            {review.metadata.scenario_tags.slice(0, 2).map((tag) => (
+              <span key={tag} className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600">
+                {tag}
+              </span>
             ))}
           </div>
-        </section>
+          <ScenarioReviewCard scenario={scenario} />
+        </>
       )}
 
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1005,7 +1009,7 @@ function ScenarioReviewStage({
           </button>
           {currentIndex === total - 1 ? (
             <button type="button" onClick={onProceed} disabled={isProceeding} className={primaryButtonClass}>
-              {isProceeding ? "Opening..." : "Proceed to Decision Flow"}
+              {isProceeding ? "Opening..." : "Proceed to Run Selection"}
             </button>
           ) : null}
         </div>
@@ -1698,6 +1702,12 @@ const signalCopy: Record<
     helper: "How hard it is to displace the current setup.",
     minLabel: "Easy to replace",
     maxLabel: "Hard to replace",
+  },
+  timeToValueExpectation: {
+    label: "Time-to-Value Expectation",
+    helper: "Derived from how quickly the segment expects visible value.",
+    minLabel: "Can wait longer",
+    maxLabel: "Needs value fast",
   },
   proofRequirement: {
     label: "Proof Requirement",

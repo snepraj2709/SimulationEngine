@@ -1,6 +1,11 @@
 export type AnalysisStatus = "queued" | "processing" | "awaiting_review" | "completed" | "failed";
 export type Reaction = "retain" | "upgrade" | "downgrade" | "churn";
 export type FeedbackType = "thumbs_up" | "thumbs_down";
+export type ConfidenceLabel = "low" | "medium" | "high";
+export type EditableControl = "text" | "textarea" | "percentage" | "dot_scale" | "ranked_driver_editor";
+export type ImpactSeverity = "high" | "medium" | "low";
+export type ImpactDirection = "positive" | "negative" | "mixed" | "neutral";
+export type EffortLevel = "low" | "medium" | "high";
 export type WorkflowStage =
   | "product_understanding"
   | "icp_profiles"
@@ -70,6 +75,64 @@ export interface ExtractedProductData {
   edited_at: string | null;
 }
 
+export interface ConfidenceIndicator {
+  score: number;
+  label: ConfidenceLabel;
+  source: "llm" | "derived";
+}
+
+export interface EditableFieldConfig {
+  field: string;
+  label: string;
+  control: EditableControl;
+  editable: boolean;
+  visible_by_default: boolean;
+  min: number | null;
+  max: number | null;
+}
+
+export interface ICPBuyingLogic {
+  buys_for: string[];
+  avoids_because: string[];
+  wins_with: string[];
+}
+
+export interface BehavioralSignal {
+  signal_key: string;
+  label: string;
+  value_1_to_5: 1 | 2 | 3 | 4 | 5;
+  editable: boolean;
+  derived: boolean;
+  source_field: string | null;
+}
+
+export interface DecisionDriverView {
+  key: string;
+  label: string;
+  weight_percent: number;
+  rank: number;
+}
+
+export interface SimulationImpactItem {
+  title: string;
+  explanation: string;
+  severity: ImpactSeverity;
+}
+
+export interface ICPViewModel {
+  id: string;
+  segment_name: string;
+  segment_summary: string;
+  estimated_segment_share: number;
+  confidence: ConfidenceIndicator | null;
+  best_fit_use_case: string;
+  buying_logic: ICPBuyingLogic;
+  behavioral_signals: BehavioralSignal[];
+  decision_drivers: DecisionDriverView[];
+  simulation_impact: SimulationImpactItem[];
+  editable_fields: EditableFieldConfig[];
+}
+
 export interface ICPProfile {
   id: string;
   analysis_id: string;
@@ -91,6 +154,7 @@ export interface ICPProfile {
   adoption_friction: number;
   value_perception_explanation: string;
   segment_weight: number;
+  view_model?: ICPViewModel | null;
 }
 
 export interface ScenarioInputField {
@@ -109,6 +173,55 @@ export interface ScenarioInputSchema {
   fields: ScenarioInputField[];
 }
 
+export interface ScenarioRecommendation {
+  priority_rank: number;
+  recommendation_label: string;
+  recommendation_reason: string;
+}
+
+export interface ScenarioExpectedImpact {
+  metric_key: string;
+  label: string;
+  direction: ImpactDirection;
+  min_change_percent: number;
+  max_change_percent: number;
+  confidence: ConfidenceLabel | null;
+}
+
+export interface ScenarioExecutionEffort {
+  level: EffortLevel;
+  explanation: string;
+}
+
+export interface ScenarioLinkedICPSummary {
+  segment_name: string;
+  relevant_signals: BehavioralSignal[];
+}
+
+export interface ScenarioMetadata {
+  market: string | null;
+  service_name: string | null;
+  plan_tier: string | null;
+  billing_period: string | null;
+  scenario_tags: string[];
+}
+
+export interface ScenarioReviewView {
+  id: string;
+  scenario_type: string;
+  scenario_title: string;
+  scenario_summary: string;
+  short_decision_statement: string;
+  recommendation: ScenarioRecommendation;
+  expected_impact: ScenarioExpectedImpact[];
+  why_this_might_work: string[];
+  tradeoffs: string[];
+  execution_effort: ScenarioExecutionEffort;
+  linked_icp_summary: ScenarioLinkedICPSummary | null;
+  raw_parameters: Record<string, unknown>;
+  metadata: ScenarioMetadata;
+}
+
 export interface Scenario {
   id: string;
   analysis_id: string;
@@ -122,6 +235,7 @@ export interface Scenario {
   input_parameters_schema: ScenarioInputSchema;
   created_at: string;
   updated_at: string;
+  review_view?: ScenarioReviewView | null;
 }
 
 export interface SimulationResult {

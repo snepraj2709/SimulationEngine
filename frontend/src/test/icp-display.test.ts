@@ -72,4 +72,44 @@ describe("icpDisplay adapter", () => {
     expect(formatSegmentShare(30)).toBe("30%");
     expect(formatSegmentShare(33.3)).toBe("33.3%");
   });
+
+  it("prefers backend view models when present", () => {
+    const profile = mapApiICPToCardModel({
+      ...icp,
+      view_model: {
+        id: "icp-1",
+        segment_name: "Founder-led SaaS consolidator",
+        segment_summary: "Early-stage teams replacing support and feedback sprawl with one operating layer.",
+        estimated_segment_share: 30,
+        confidence: { score: 0.82, label: "high", source: "derived" },
+        best_fit_use_case: "Consolidate support, feedback, and updates in one lightweight workflow.",
+        buying_logic: {
+          buys_for: ["Reduce tool sprawl"],
+          avoids_because: ["Long setup delays adoption"],
+          wins_with: ["Visible value in the first week"],
+        },
+        behavioral_signals: [
+          { signal_key: "priceSensitivity", label: "Price Sensitivity", value_1_to_5: 4, editable: true, derived: false, source_field: "price_sensitivity" },
+          { signal_key: "switchingFriction", label: "Switching Friction", value_1_to_5: 2, editable: true, derived: false, source_field: "switching_cost" },
+          { signal_key: "timeToValueExpectation", label: "Time-to-Value Expectation", value_1_to_5: 5, editable: false, derived: true, source_field: null },
+          { signal_key: "proofRequirement", label: "Proof Requirement", value_1_to_5: 4, editable: true, derived: false, source_field: "retention_threshold" },
+          { signal_key: "implementationTolerance", label: "Implementation Tolerance", value_1_to_5: 2, editable: true, derived: true, source_field: "adoption_friction" },
+          { signal_key: "retentionStability", label: "Retention Stability", value_1_to_5: 2, editable: true, derived: true, source_field: "churn_threshold" },
+        ],
+        decision_drivers: [
+          { key: "value_for_money", label: "Value For Money", weight_percent: 40, rank: 1 },
+        ],
+        simulation_impact: [
+          { title: "Pricing changes will strongly affect conversion", explanation: "High price sensitivity makes pricing more visible in evaluation.", severity: "high" },
+          { title: "Activation depends on fast proof", explanation: "The segment expects value quickly.", severity: "medium" },
+          { title: "Retention is vulnerable to weak rollout", explanation: "Trust and proof quality shape renewal behavior.", severity: "high" },
+        ],
+        editable_fields: [],
+      },
+    }, { isConfirmed: true });
+
+    expect(profile.identity.confidence?.label).toBe("High");
+    expect(profile.signals.some((signal) => signal.key === "timeToValueExpectation")).toBe(true);
+    expect(profile.simulationImpact[0].label).toBe("Pricing changes will strongly affect conversion");
+  });
 });

@@ -63,6 +63,7 @@ def test_create_and_progress_analysis_step_by_step(
     assert icp_detail["current_stage"] == "icp_profiles"
     assert icp_detail["status"] == "awaiting_review"
     assert len(icp_detail["icp_profiles"]) == 3
+    assert icp_detail["icp_profiles"][0]["view_model"]["behavioral_signals"][0]["signal_key"] == "priceSensitivity"
     assert icp_detail["scenarios"] == []
 
     scenario_response = client.post(
@@ -75,6 +76,8 @@ def test_create_and_progress_analysis_step_by_step(
     assert scenario_detail["current_stage"] == "scenarios"
     assert scenario_detail["status"] == "awaiting_review"
     assert len(scenario_detail["scenarios"]) == 3
+    assert scenario_detail["scenarios"][0]["review_view"]["expected_impact"][0]["metric_key"] == "revenue"
+    assert scenario_detail["scenarios"][0]["review_view"]["recommendation"]["priority_rank"] >= 1
 
     decision_flow_response = client.post(
         f"/api/v1/analyses/{analysis_id}/workflow/proceed",

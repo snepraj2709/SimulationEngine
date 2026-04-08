@@ -1,10 +1,16 @@
-import { ICPProfile as ApiICPProfile } from "@/types/api";
+import {
+  type BehavioralSignal,
+  type ICPProfile as ApiICPProfile,
+  type ICPViewModel,
+  type SimulationImpactItem,
+} from "@/types/api";
 
 export type ICPCardVariant = "summary" | "detail";
 export type ICPSignalLevel = 1 | 2 | 3 | 4 | 5;
 export type ICPSignalKey =
   | "priceSensitivity"
   | "switchingFriction"
+  | "timeToValueExpectation"
   | "proofRequirement"
   | "implementationTolerance"
   | "retentionStability";
@@ -15,6 +21,7 @@ export type ICPEditableFieldKey =
   | "segmentSharePct"
   | "priceSensitivity"
   | "switchingFriction"
+  | "timeToValueExpectation"
   | "proofRequirement"
   | "implementationTolerance"
   | "retentionStability"
@@ -42,6 +49,7 @@ export interface ICPDecisionDriver {
 export interface ICPSimulationImpact {
   id: string;
   label: string;
+  explanation?: string;
   type: "pricing" | "activation" | "retention";
   severity: ICPSimulationImpactSeverity;
   sourceSignals: ICPSignalKey[];
@@ -93,6 +101,15 @@ export interface ICPCardProfile {
     displayOrder: number;
   };
 }
+
+const backendSignalKeyMap: Record<string, ICPSignalKey> = {
+  priceSensitivity: "priceSensitivity",
+  switchingFriction: "switchingFriction",
+  timeToValueExpectation: "timeToValueExpectation",
+  proofRequirement: "proofRequirement",
+  implementationTolerance: "implementationTolerance",
+  retentionStability: "retentionStability",
+};
 
 type SignalDescriptor = {
   key: ICPSignalKey;
@@ -217,6 +234,10 @@ export function mapApiICPToCardModel(
   icp: ApiICPProfile,
   options: { isConfirmed?: boolean; confidence?: ICPCardProfile["identity"]["confidence"] } = {},
 ): ICPCardProfile {
+  if (icp.view_model) {
+    return mapBackendViewModelToCardModel(icp, icp.view_model, options);
+  }
+
   const decisionDrivers = buildDecisionDrivers(icp);
   const signals = signalDescriptors.map((descriptor) => ({
     key: descriptor.key,
@@ -262,6 +283,88 @@ export function mapApiICPToCardModel(
   };
 }
 
+function mapBackendViewModelToCardModel(
+  icp: ApiICPProfile,
+  viewModel: ICPViewModel,
+  options: { isConfirmed?: boolean; confidence?: ICPCardProfile["identity"]["confidence"] } = {},
+): ICPCardProfile {
+  const signals = viewModel.behavioral_signals
+    .map((signal) => mapBackendSignal(signal))
+    .filter((signal): signal is ICPSignal => Boolean(signal));
+  const decisionDrivers: ICPDecisionDriver[] = viewModel.decision_drivers.map((driver, index, rows) => ({
+    key: driver.key,
+    label: driver.label,
+    rank: driver.rank,
+    weightPct: driver.weight_percent,
+    visualWeight: rows[0]?.weight_percent ? driver.weight_percent / rows[0].weight_percent : 0,
+    tone: index === 0 ? "primary" : index === 1 ? "secondary" : "supporting",
+    editable: true,
+  }));
+  const editableFields: ICPEditableFieldConfig[] = viewModel.editable_fields.map((field) => {
+    const control: ICPEditableFieldConfig["control"] =
+      field.control === "percentage"
+        ? "percentage"
+        : field.control === "ranked_driver_editor"
+          ? "rankedDriverEditor"
+          : field.control === "dot_scale"
+            ? "dotScale"
+            : "text";
+    return {
+      field: (field.field === "segment_name" ? "name" : field.field === "segment_share" ? "segmentSharePct" : field.field) as ICPEditableFieldKey,
+      label: field.label,
+      control,
+      visibleInQuickEdit: field.visible_by_default,
+      min: field.min ?? undefined,
+      max: field.max ?? undefined,
+    };
+  });
+
+  return {
+    id: icp.id,
+    identity: {
+      name: viewModel.segment_name,
+      summary: viewModel.segment_summary,
+      segmentSharePct: viewModel.estimated_segment_share,
+      confidence: viewModel.confidence
+        ? {
+            score: viewModel.confidence.score,
+            label:
+              viewModel.confidence.label === "high"
+                ? "High"
+                : viewModel.confidence.label === "medium"
+                  ? "Medium"
+                  : "Low",
+            source: viewModel.confidence.source,
+          }
+        : options.confidence,
+      statusLabel: options.isConfirmed ? "Confirmed" : icp.is_user_edited ? "Edited" : "AI inferred",
+    },
+    buyingLogic: {
+      buysFor: viewModel.buying_logic.buys_for,
+      avoidsBecause: viewModel.buying_logic.avoids_because,
+      winsWith: viewModel.buying_logic.wins_with,
+      comparedAgainst: icp.alternatives_json,
+    },
+    signals,
+    decisionDrivers,
+    simulationImpact: viewModel.simulation_impact.map((impact, index) => mapBackendSimulationImpact(impact, index)),
+    editableFields: editableFields.length ? editableFields : icpQuickEditFields,
+    sourceAssumptions: {
+      description: icp.description,
+      useCase: viewModel.best_fit_use_case || icp.use_case,
+      goals: icp.goals_json,
+      painPoints: icp.pain_points_json,
+      alternatives: icp.alternatives_json,
+      valueExplanation: icp.value_perception_explanation,
+    },
+    meta: {
+      isEdited: icp.is_user_edited,
+      isConfirmed: Boolean(options.isConfirmed),
+      displayOrder: icp.display_order,
+    },
+  };
+}
+
 export function formatDriverLabel(driver: string) {
   return driver
     .split("_")
@@ -281,6 +384,37 @@ export function getSignalLevelLabel(level: ICPSignalLevel) {
   if (level <= 2) return "Low";
   if (level === 3) return "Medium";
   return "High";
+}
+
+function mapBackendSignal(signal: BehavioralSignal): ICPSignal | null {
+  const key = backendSignalKeyMap[signal.signal_key];
+  if (!key) return null;
+  return {
+    key,
+    label: signal.label,
+    level: signal.value_1_to_5,
+    editable: signal.editable,
+    derived: signal.derived,
+    sourceField: (signal.source_field ?? "price_sensitivity") as keyof ApiICPProfile,
+  };
+}
+
+function mapBackendSimulationImpact(impact: SimulationImpactItem, index: number): ICPSimulationImpact {
+  const type = index === 0 ? "pricing" : index === 1 ? "activation" : "retention";
+  const sourceSignals: ICPSignalKey[] =
+    type === "pricing"
+      ? ["priceSensitivity"]
+      : type === "activation"
+        ? ["timeToValueExpectation", "implementationTolerance"]
+        : ["proofRequirement", "retentionStability"];
+  return {
+    id: `${type}-${index}`,
+    label: impact.title,
+    explanation: impact.explanation,
+    type,
+    severity: impact.severity,
+    sourceSignals,
+  };
 }
 
 export function getSignalToneClass(level: ICPSignalLevel) {

@@ -1,12 +1,10 @@
 import { ICPProfile as ApiICPProfile } from "@/types/api";
 import { cn } from "@/lib/utils";
+import { DotScaleIndicator } from "@/components/analysis/DotScaleIndicator";
 import {
-  formatDriverLabel,
   formatSegmentShare,
-  formatSignalDots,
   getDriverRankStyle,
   getSignalLevelLabel,
-  getSignalToneClass,
   mapApiICPToCardModel,
   type ICPCardVariant,
   type ICPDecisionDriver,
@@ -182,7 +180,6 @@ function ICPSignalList({ signals, compact }: { signals: ICPSignal[]; compact: bo
 }
 
 function ICPSignalRow({ signal, compact }: { signal: ICPSignal; compact: boolean }) {
-  const dots = formatSignalDots(signal.level);
   const levelLabel = getSignalLevelLabel(signal.level);
 
   return (
@@ -191,17 +188,7 @@ function ICPSignalRow({ signal, compact }: { signal: ICPSignal; compact: boolean
         <p className="text-sm font-medium text-slate-900">{signal.label}</p>
       </div>
       <div className="flex items-center gap-3">
-        <div className="flex items-center gap-1" role="img" aria-label={`${signal.label} ${signal.level} out of 5`}>
-          {dots.map((filled, index) => (
-            <span
-              key={`${signal.key}-${index}`}
-              className={cn(
-                "h-2.5 w-2.5 rounded-full border border-slate-300",
-                filled ? getSignalToneClass(signal.level).replace("text-", "bg-") : "bg-white",
-              )}
-            />
-          ))}
-        </div>
+        <DotScaleIndicator label={signal.label} value={signal.level} compact />
         {!compact ? <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{levelLabel}</span> : null}
       </div>
     </div>
@@ -286,10 +273,11 @@ function ICPSimulationImpactList({ impacts }: { impacts: ICPSimulationImpact[] }
                   : "bg-emerald-50 text-emerald-900",
             )}
           >
-            <span className="text-sm font-semibold">{impact.label}</span>
-            <span className="text-[11px] font-semibold uppercase tracking-[0.14em]">
-              {impact.severity}
-            </span>
+            <div>
+              <p className="text-sm font-semibold">{impact.label}</p>
+              {impact.explanation ? <p className="mt-1 text-xs leading-5 opacity-80">{impact.explanation}</p> : null}
+            </div>
+            <span className="text-[11px] font-semibold uppercase tracking-[0.14em]">{impact.severity}</span>
           </div>
         ))}
       </div>
