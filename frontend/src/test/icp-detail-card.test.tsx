@@ -10,63 +10,75 @@ const icp: ICPProfile = {
   display_order: 0,
   is_user_edited: false,
   edited_at: null,
-  name: "Evaluation skeptic",
-  description: "Needs proof before committing.",
-  use_case: "Comparing the offer against alternatives.",
-  goals_json: ["Reduce budget risk"],
-  pain_points_json: ["Unclear ROI"],
-  decision_drivers_json: ["price_affordability", "support_reliability", "team_enablement", "brand_habit"],
+  name: "Founder-led SaaS consolidator",
+  description: "Early-stage B2B SaaS teams replacing support and feedback sprawl with one operating layer.",
+  use_case: "Consolidate support, feedback, and roadmap updates in one lightweight workflow.",
+  goals_json: ["Reduce tool sprawl", "Respond without hiring support ops", "Capture requests in one place"],
+  pain_points_json: ["Seat-heavy pricing grows fast", "Long setup delays adoption", "Manual follow-up after releases"],
+  decision_drivers_json: ["value_for_money", "implementation_complexity", "convenience", "team_enablement"],
   driver_weights_json: {
-    price_affordability: 0.28,
-    support_reliability: 0.24,
-    team_enablement: 0.18,
-    brand_habit: 0.12,
+    value_for_money: 0.36,
+    implementation_complexity: 0.24,
+    convenience: 0.18,
+    team_enablement: 0.12,
   },
   price_sensitivity: 0.8,
-  switching_cost: 0.3,
-  alternatives_json: ["Competitor A"],
-  churn_threshold: -0.2,
-  retention_threshold: 0.1,
-  adoption_friction: 0.4,
-  value_perception_explanation: "Retains only when the value story is clear.",
-  segment_weight: 0.24,
+  switching_cost: 0.2,
+  alternatives_json: ["Intercom Starter", "Notion + Slack + forms"],
+  churn_threshold: -0.28,
+  retention_threshold: 0.11,
+  adoption_friction: 0.7,
+  value_perception_explanation: "Visible value in the first week and low setup burden keep this segment engaged.",
+  segment_weight: 0.3,
 };
 
 describe("ICPDetailCard", () => {
-  it("uses the orange contrast palette for the third strongest signal", () => {
-    render(<ICPDetailCard icp={icp} />);
+  it("renders the detail card as a compact simulation-assumption view", () => {
+    render(<ICPDetailCard icp={icp} isConfirmed onConfirm={() => undefined} onEdit={() => undefined} />);
 
-    const thirdRankLabel = screen.getByText(/third strongest signal/i);
-    expect(thirdRankLabel).toHaveClass("text-orange-800");
+    expect(screen.getByText(/ICP segment/i)).toBeInTheDocument();
+    expect(screen.getByText(/Founder-led SaaS consolidator/i)).toBeInTheDocument();
+    expect(screen.getByText(/30% share/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Confirmed/i)).toHaveLength(2);
 
-    const thirdRankCard = thirdRankLabel.closest("div")?.parentElement?.parentElement as HTMLElement | null;
-    expect(thirdRankCard).not.toBeNull();
-    expect(thirdRankCard).toHaveClass("border-orange-200", "bg-orange-50/70");
+    expect(screen.getByText(/^Buys for$/i)).toBeInTheDocument();
+    expect(screen.getByText(/^Avoids because$/i)).toBeInTheDocument();
+    expect(screen.getByText(/^Wins with$/i)).toBeInTheDocument();
 
-    const fillBar = thirdRankCard?.querySelector('div[style*="18%"]');
-    expect(fillBar).not.toBeNull();
-    expect(fillBar).toHaveClass("from-orange-500", "to-rose-500");
+    expect(screen.getByText(/Behavioral signals/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Price Sensitivity 4 out of 5/i)).toBeInTheDocument();
+    expect(screen.getByText(/Simulation impact/i)).toBeInTheDocument();
+    expect(screen.getByText(/Pricing ->/i)).toBeInTheDocument();
+    expect(screen.getByText(/Activation ->/i)).toBeInTheDocument();
+    expect(screen.getByText(/Retention ->/i)).toBeInTheDocument();
+
+    expect(screen.getByText(/Decision drivers/i)).toBeInTheDocument();
+    expect(screen.getByText(/^#1$/)).toBeInTheDocument();
+    expect(screen.getByText(/^Value For Money$/i)).toBeInTheDocument();
+    const sourceAccordion = screen.getByText(/Source assumptions/i).closest("details");
+    expect(sourceAccordion).not.toBeNull();
+    expect(sourceAccordion).not.toHaveAttribute("open");
   });
 
-  it("renders the expanded business-facing ICP sections", () => {
-    render(<ICPDetailCard icp={icp} />);
+  it("renders the summary variant with compact drivers and compare action", () => {
+    render(
+      <ICPDetailCard
+        icp={icp}
+        variant="summary"
+        isCompared
+        showCompare
+        onConfirm={() => undefined}
+        onEdit={() => undefined}
+        onToggleCompare={() => undefined}
+      />,
+    );
 
-    expect(screen.getByText(/^Goals$/i)).toBeInTheDocument();
-    expect(screen.getByText(/reduce budget risk/i)).toBeInTheDocument();
-    expect(screen.getByText(/^Pain points$/i)).toBeInTheDocument();
-    expect(screen.getByText(/unclear roi/i)).toBeInTheDocument();
-    expect(screen.getByText(/^Alternatives$/i)).toBeInTheDocument();
-    expect(screen.getByText(/competitor a/i)).toBeInTheDocument();
-    const segmentWeightMetric = screen.getByText(/^Estimated segment share$/i).closest("div");
-    expect(segmentWeightMetric).toHaveTextContent("24%");
-    expect(screen.getByText(/^Selected drivers$/i)).toBeInTheDocument();
-    expect(screen.getByText(/^Decision driver weights$/i)).toBeInTheDocument();
-    expect(screen.getByText(/^High$/i)).toBeInTheDocument();
-    expect(screen.getByText(/reacts strongly to pricing changes/i)).toBeInTheDocument();
-    expect(screen.queryByText("0.80")).not.toBeInTheDocument();
-    expect(screen.getByText(/^Switching resistance$/i)).toBeInTheDocument();
-    expect(screen.getByText(/^Retention resilience$/i)).toBeInTheDocument();
-    expect(screen.getByText(/^Expansion hurdle$/i)).toBeInTheDocument();
-    expect(screen.getByText(/^Rollout effort$/i)).toBeInTheDocument();
+    expect(screen.getByText(/In compare/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^compare$/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^compared$/i })).toBeInTheDocument();
+    expect(screen.getAllByText(/\+2 more/i)).toHaveLength(2);
+
+    expect(screen.getByText(/^36%$/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Source assumptions/i)).not.toBeInTheDocument();
   });
 });

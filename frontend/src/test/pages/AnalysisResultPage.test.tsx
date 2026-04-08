@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -154,6 +154,7 @@ describe("AnalysisResultPage", () => {
     useUIStore.setState({
       selectedScenarioId: "stale-scenario",
       selectedICPId: "stale-icp",
+      compareICPIds: ["stale-icp"],
       compareScenarioIds: ["stale-scenario"],
     });
   });
@@ -371,7 +372,7 @@ describe("AnalysisResultPage", () => {
     expect(screen.queryByText(/ready for review/i)).not.toBeInTheDocument();
   });
 
-  it("renders the expanded ICP read-only card before edit mode", () => {
+  it("renders the compact simulation-oriented ICP review card before edit mode", () => {
     mockUseAnalysisPolling.mockReturnValue({
       isLoading: false,
       error: null,
@@ -380,18 +381,19 @@ describe("AnalysisResultPage", () => {
 
     renderPage();
 
-    expect(screen.getByText(/^Goals$/i)).toBeInTheDocument();
-    expect(screen.getByText(/^Pain points$/i)).toBeInTheDocument();
-    expect(screen.getByText(/^Alternatives$/i)).toBeInTheDocument();
-    expect(screen.getByText(/^Estimated segment share$/i)).toBeInTheDocument();
-    expect(screen.getByText(/^Retention resilience$/i)).toBeInTheDocument();
-    expect(screen.getByText(/^Selected drivers$/i)).toBeInTheDocument();
-    expect(screen.getByText(/^Decision driver weights$/i)).toBeInTheDocument();
-    expect(screen.getByText(/spreadsheet workflow/i)).toBeInTheDocument();
+    expect(screen.getByText(/^Buys for$/i)).toBeInTheDocument();
+    expect(screen.getByText(/^Avoids because$/i)).toBeInTheDocument();
+    expect(screen.getByText(/^Wins with$/i)).toBeInTheDocument();
+    expect(screen.getByText(/Behavioral signals/i)).toBeInTheDocument();
+    expect(screen.getByText(/Simulation impact/i)).toBeInTheDocument();
+    expect(screen.getByText(/Decision drivers/i)).toBeInTheDocument();
+    const sourceAccordion = screen.getByText(/Source assumptions/i).closest("details");
+    expect(sourceAccordion).not.toBeNull();
     expect(screen.getByText(/total segment share 100%/i)).toBeInTheDocument();
+    expect(sourceAccordion).not.toHaveAttribute("open");
   });
 
-  it("shows ICP edit fields in the same order as the read-only card and uses sliders for driver weights", async () => {
+  it("opens the ICP assumptions sheet with quick edit first and source assumptions behind disclosure", async () => {
     const user = userEvent.setup();
 
     mockUseAnalysisPolling.mockReturnValue({
@@ -402,34 +404,28 @@ describe("AnalysisResultPage", () => {
 
     renderPage();
 
-    await user.click(screen.getByRole("button", { name: /^edit$/i }));
+    await user.click(screen.getAllByRole("button", { name: /edit assumptions/i })[0]);
+
+    const dialog = screen.getByRole("dialog", { name: /revenue operations lead/i });
+    const dialogQueries = within(dialog);
 
     expectInDocumentOrder([
-      screen.getByText(/^Name$/),
-      screen.getByText(/^Description$/),
-      screen.getByText(/^Use case$/),
-      screen.getByText(/^Goals$/),
-      screen.getByText(/^Pain points$/),
-      screen.getByText(/^Alternatives$/),
-      screen.getByText(/^Value perception explanation$/),
-      screen.getByText(/^Estimated segment share$/),
-      screen.getByText(/^Price sensitivity$/),
-      screen.getByText(/^Switching resistance$/),
-      screen.getByText(/^Retention resilience$/),
-      screen.getByText(/^Expansion hurdle$/),
-      screen.getByText(/^Rollout effort$/),
-      screen.getByText(/^Decision Drivers$/),
+      dialogQueries.getByText(/^Segment name$/),
+      dialogQueries.getByText(/^Segment share$/),
+      dialogQueries.getByText(/^Behavioral signals$/),
+      dialogQueries.getByText(/^Decision drivers$/),
+      dialogQueries.getByText(/^Source assumptions$/),
     ]);
 
-    expect(screen.getByRole("spinbutton", { name: /estimated segment share/i })).toBeInTheDocument();
-    expect(screen.getByRole("slider", { name: /^Price sensitivity$/i })).toBeInTheDocument();
-    expect(screen.getByRole("slider", { name: /^Switching resistance$/i })).toBeInTheDocument();
-    expect(screen.getByRole("slider", { name: /^Retention resilience$/i })).toBeInTheDocument();
-    expect(screen.getByRole("slider", { name: /^Expansion hurdle$/i })).toBeInTheDocument();
-    expect(screen.getByRole("slider", { name: /^Rollout effort$/i })).toBeInTheDocument();
-    expect(screen.getAllByRole("slider")).toHaveLength(8);
-    expect(screen.queryByRole("spinbutton", { name: /^Price sensitivity$/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("spinbutton", { name: /^Weight$/i })).not.toBeInTheDocument();
+    expect(dialog).toBeInTheDocument();
+    expect(dialogQueries.getByRole("spinbutton", { name: /segment share/i })).toBeInTheDocument();
+    expect(dialogQueries.getByRole("radio", { name: /Price Sensitivity 5 out of 5/i })).toBeInTheDocument();
+    expect(dialogQueries.getByRole("radio", { name: /Switching Friction 3 out of 5/i })).toBeInTheDocument();
+    expect(screen.queryByRole("slider")).not.toBeInTheDocument();
+
+    const details = dialogQueries.getByText(/^Source assumptions$/i).closest("details");
+    expect(details).not.toBeNull();
+    expect(details).not.toHaveAttribute("open");
   });
 
   it("saves added, removed, and reweighted drivers back into the read-only card", async () => {
@@ -448,7 +444,7 @@ describe("AnalysisResultPage", () => {
       analysisState = buildIcpStageDetail([
         buildIcpProfile({
           decision_drivers_json: ["team_enablement", "automation_coverage", "price_affordability"],
-          driver_weights_json: { team_enablement: 0.5, automation_coverage: 0.3, price_affordability: 0.2 },
+          driver_weights_json: { team_enablement: 0.6, automation_coverage: 0.25, price_affordability: 0 },
           is_user_edited: true,
           edited_at: new Date().toISOString(),
         }),
@@ -458,16 +454,14 @@ describe("AnalysisResultPage", () => {
 
     renderPage();
 
-    await user.click(screen.getByRole("button", { name: /^edit$/i }));
+    await user.click(screen.getAllByRole("button", { name: /edit assumptions/i })[0]);
     await user.click(screen.getByRole("button", { name: /add driver/i }));
 
     const driverInputs = screen.getAllByRole("combobox");
     expect(driverInputs).toHaveLength(4);
 
     await user.click(screen.getAllByRole("button", { name: /remove/i })[1]);
-    fireEvent.change(screen.getByRole("slider", { name: /weight for team enablement/i }), {
-      target: { value: "0.55" },
-    });
+    await user.click(screen.getByRole("radio", { name: /Weight for Team Enablement 3 out of 5/i }));
 
     await user.click(screen.getByRole("button", { name: /save changes/i }));
 
@@ -478,7 +472,7 @@ describe("AnalysisResultPage", () => {
         expect.objectContaining({
           decision_drivers: ["team_enablement", "automation_coverage", "price_affordability"],
           driver_weights: [
-            { driver: "team_enablement", weight: 0.55 },
+            { driver: "team_enablement", weight: 0.6 },
             { driver: "automation_coverage", weight: 0.25 },
             { driver: "price_affordability", weight: 0 },
           ],
@@ -487,10 +481,59 @@ describe("AnalysisResultPage", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getAllByText(/^Price Affordability$/i)).toHaveLength(2);
+      expect(screen.getByText(/^Price Affordability$/i)).toBeInTheDocument();
     });
     expect(screen.queryByText(/^Analytics Depth$/)).not.toBeInTheDocument();
-    expect(screen.getByText(/primary driver: Team Enablement 50%/i)).toBeInTheDocument();
+    expect(screen.getByText(/^Reviewed by you$/i)).toBeInTheDocument();
+    expect(screen.getByText(/^60%$/)).toBeInTheDocument();
+  });
+
+  it("lets users compare ICPs from the final review grid", async () => {
+    const user = userEvent.setup();
+
+    mockUseAnalysisPolling.mockReturnValue({
+      isLoading: false,
+      error: null,
+      data: {
+        id: "analysis-1",
+        input_url: "https://acme.example/",
+        normalized_url: "https://acme.example",
+        status: "completed",
+        current_stage: "final_review",
+        started_at: new Date().toISOString(),
+        completed_at: new Date().toISOString(),
+        error_message: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        workflow: buildWorkflow("final_review"),
+        extracted_product_data: null,
+        icp_profiles: [
+          buildIcpProfile(),
+          buildIcpProfile({
+            id: "icp-2",
+            name: "Scaling support operator",
+            price_sensitivity: 0.2,
+            segment_weight: 0.45,
+          }),
+        ],
+        scenarios: [],
+        simulation_runs: [],
+      },
+    });
+
+    renderPage();
+
+    const compareButtons = screen.getAllByRole("button", { name: /^compare$/i });
+    await user.click(compareButtons[0]);
+    await user.click(compareButtons[1]);
+
+    const comparePanel = screen.getByText(/Side-by-side simulation assumptions/i).closest("section");
+    expect(comparePanel).not.toBeNull();
+    expect(within(comparePanel as HTMLElement).getByText(/Scaling support operator/i)).toBeInTheDocument();
+    expect(useUIStore.getState().compareICPIds).toEqual(["icp-1", "icp-2"]);
+
+    await user.click(screen.getByRole("button", { name: /clear compare/i }));
+    expect(screen.queryByText(/Side-by-side simulation assumptions/i)).not.toBeInTheDocument();
   });
 
   it("shows the review cue inside the scenario stage header instead of a separate status card", () => {

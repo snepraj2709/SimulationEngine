@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
@@ -22,20 +23,16 @@ import { FeedbackBar } from "@/components/analysis/FeedbackBar";
 import { ICPCardGrid } from "@/components/analysis/ICPCardGrid";
 import { ICPDetailCard } from "@/components/analysis/ICPDetailCard";
 import {
-  clampIcpMetricUiValue,
-  formatIcpMetricPercent,
   formatDriverLabel,
-  getIcpMetricBand,
-  getIcpMetricBandStyle,
-  getIcpMetricDescription,
-  getIcpMetricLabel,
-  getIcpMetricMetadata,
-  getIcpMetricRawValue,
-  getIcpMetricUiValue,
-  getDriverRankLabel,
-  getDriverRankStyle,
+  formatSegmentShare,
   getEditableDriverRows,
-  type IcpTraitMetricKey,
+  getDriverWeightFromLevel,
+  getDriverWeightLevel,
+  getRawValueFromSignalLevel,
+  getSignalLevelFromRaw,
+  signalScale,
+  type ICPSignalKey,
+  type ICPSignalLevel,
 } from "@/components/analysis/icpDisplay";
 import { LoadingState } from "@/components/analysis/LoadingState";
 import { ProductSummaryPanel } from "@/components/analysis/ProductSummaryPanel";
@@ -69,12 +66,12 @@ const decisionDriverOptions = [
   "convenience",
 ] as const;
 
-const icpTraitMetricKeys: readonly IcpTraitMetricKey[] = [
-  "price_sensitivity",
-  "switching_cost",
-  "churn_threshold",
-  "retention_threshold",
-  "adoption_friction",
+const icpSignalKeys: readonly ICPSignalKey[] = [
+  "priceSensitivity",
+  "switchingFriction",
+  "proofRequirement",
+  "implementationTolerance",
+  "retentionStability",
 ] as const;
 
 type ProductDraft = {
@@ -119,9 +116,12 @@ export function AnalysisResultPage() {
   const queryClient = useQueryClient();
   const selectedScenarioId = useUIStore((state) => state.selectedScenarioId);
   const selectedICPId = useUIStore((state) => state.selectedICPId);
+  const compareICPIds = useUIStore((state) => state.compareICPIds);
   const compareScenarioIds = useUIStore((state) => state.compareScenarioIds);
   const setSelectedScenarioId = useUIStore((state) => state.setSelectedScenarioId);
   const setSelectedICPId = useUIStore((state) => state.setSelectedICPId);
+  const toggleCompareICP = useUIStore((state) => state.toggleCompareICP);
+  const clearCompareICPs = useUIStore((state) => state.clearCompareICPs);
   const toggleCompareScenario = useUIStore((state) => state.toggleCompareScenario);
   const clearCompareScenarios = useUIStore((state) => state.clearCompareScenarios);
 
@@ -264,17 +264,19 @@ export function AnalysisResultPage() {
   useEffect(() => {
     setSelectedScenarioId(null);
     setSelectedICPId(null);
+    clearCompareICPs();
     clearCompareScenarios();
     setActiveIcpIndex(0);
     setActiveScenarioIndex(0);
     setDecisionFlowScenarioId(null);
     resetEditingState();
     setSoftRefreshOrigin(null);
-  }, [analysisId, clearCompareScenarios, setSelectedICPId, setSelectedScenarioId]);
+  }, [analysisId, clearCompareICPs, clearCompareScenarios, setSelectedICPId, setSelectedScenarioId]);
 
   useEffect(() => {
     if (!analysis) return;
     if (analysis.current_stage !== "final_review") {
+      clearCompareICPs();
       clearCompareScenarios();
     }
     if ((!selectedICPId || !analysis.icp_profiles.find((icp) => icp.id === selectedICPId)) && analysis.icp_profiles[0]) {
@@ -292,6 +294,7 @@ export function AnalysisResultPage() {
     setActiveScenarioIndex((current) => clampIndex(current, analysis.scenarios.length));
   }, [
     analysis,
+    clearCompareICPs,
     clearCompareScenarios,
     decisionFlowScenarioId,
     selectedICPId,
@@ -310,6 +313,7 @@ export function AnalysisResultPage() {
     );
   }, [analysis]);
   const activeIcp = analysis?.icp_profiles[activeIcpIndex] ?? null;
+  const editingIcp = analysis?.icp_profiles.find((profile) => profile.id === editingIcpId) ?? null;
   const activeScenario = analysis?.scenarios[activeScenarioIndex] ?? null;
   const icpSegmentWeightTotal = analysis
     ? roundToPercent(
@@ -437,10 +441,9 @@ export function AnalysisResultPage() {
             icp={activeIcp}
             currentIndex={activeIcpIndex}
             total={analysis.icp_profiles.length}
+            isConfirmed={selectedICPId === activeIcp.id}
             editing={editingIcpId === activeIcp.id}
-            draft={icpDraft ?? createIcpDraft(activeIcp)}
             segmentWeightTotal={icpSegmentWeightTotal}
-            isSaving={updateIcpMutation.isPending}
             isProceeding={proceedMutation.isPending}
             onPrevious={() => setActiveIcpIndex((current) => Math.max(0, current - 1))}
             onNext={() => setActiveIcpIndex((current) => Math.min(analysis.icp_profiles.length - 1, current + 1))}
@@ -452,10 +455,10 @@ export function AnalysisResultPage() {
               setEditingIcpId(null);
               setIcpDraft(null);
             }}
-            onChange={(next) => setIcpDraft(next)}
-            onSave={() => {
-              const draft = icpDraft ?? createIcpDraft(activeIcp);
-              updateIcpMutation.mutate({ icpId: activeIcp.id, payload: draft });
+            onConfirm={() => setSelectedICPId(activeIcp.id)}
+            onRegenerate={() => {
+              setSoftRefreshOrigin("icp_profiles");
+              reopenMutation.mutate({ stage: "icp_profiles", entity_id: activeIcp.id });
             }}
             onProceed={() => proceedMutation.mutate({ expected_stage: "icp_profiles", run_async: false })}
           />
@@ -537,7 +540,20 @@ export function AnalysisResultPage() {
                 <ICPCardGrid
                   icps={analysis.icp_profiles}
                   selectedICPId={selectedICPId}
-                  onSelectICP={(icpId) => setSelectedICPId(icpId)}
+                  comparedICPIds={compareICPIds}
+                  onConfirmICP={(icpId) => setSelectedICPId(icpId)}
+                  onEditICP={(icpId) => {
+                    const target = analysis.icp_profiles.find((profile) => profile.id === icpId);
+                    if (!target) return;
+                    setEditingIcpId(target.id);
+                    setIcpDraft(createIcpDraft(target));
+                  }}
+                  onToggleCompareICP={toggleCompareICP}
+                  onRegenerateICP={(icpId) => {
+                    setSoftRefreshOrigin("icp_profiles");
+                    reopenMutation.mutate({ stage: "icp_profiles", entity_id: icpId });
+                  }}
+                  onClearComparedICP={clearCompareICPs}
                 />
               </div>
             ) : null}
@@ -632,6 +648,23 @@ export function AnalysisResultPage() {
           <ErrorState title="Hard refresh failed" message={refreshMutation.error.message} />
         ) : null}
       </div>
+      {editingIcp && icpDraft && typeof document !== "undefined"
+        ? createPortal(
+            <ICPEditSheet
+              icp={editingIcp}
+              draft={icpDraft}
+              segmentWeightTotal={icpSegmentWeightTotal}
+              isSaving={updateIcpMutation.isPending}
+              onClose={() => {
+                setEditingIcpId(null);
+                setIcpDraft(null);
+              }}
+              onChange={setIcpDraft}
+              onSave={() => updateIcpMutation.mutate({ icpId: editingIcp.id, payload: icpDraft })}
+            />,
+            document.body,
+          )
+        : null}
     </AppShell>
   );
 }
@@ -757,33 +790,31 @@ function ICPReviewStage({
   icp,
   currentIndex,
   total,
+  isConfirmed,
   editing,
-  draft,
   segmentWeightTotal,
-  isSaving,
   isProceeding,
   onPrevious,
   onNext,
   onStartEdit,
   onCancelEdit,
-  onChange,
-  onSave,
+  onConfirm,
+  onRegenerate,
   onProceed,
 }: {
   icp: ICPProfile;
   currentIndex: number;
   total: number;
+  isConfirmed: boolean;
   editing: boolean;
-  draft: IcpDraft;
   segmentWeightTotal: number;
-  isSaving: boolean;
   isProceeding: boolean;
   onPrevious: () => void;
   onNext: () => void;
   onStartEdit: () => void;
   onCancelEdit: () => void;
-  onChange: (draft: IcpDraft) => void;
-  onSave: () => void;
+  onConfirm: () => void;
+  onRegenerate: () => void;
   onProceed: () => void;
 }) {
   return (
@@ -793,7 +824,7 @@ function ICPReviewStage({
         title={`ICP ${currentIndex + 1} of ${total}`}
         body="Review each profile one at a time. Next: generate suggested scenarios from the reviewed ICP set."
         reviewStateLabel={icp.is_user_edited ? "Reviewed by you" : "Ready to review"}
-        actionLabel={editing ? "Cancel" : "Edit"}
+        actionLabel={editing ? "Close editor" : "Edit assumptions"}
         onAction={editing ? onCancelEdit : onStartEdit}
         statusBadge={
           <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
@@ -802,142 +833,17 @@ function ICPReviewStage({
         }
       />
 
-      {editing ? (
-        <section className="panel space-y-6 p-6">
-          <TextField label="Name" value={draft.name} onChange={(value) => onChange({ ...draft, name: value })} />
-          <TextareaField
-            label="Description"
-            value={draft.description}
-            rows={4}
-            onChange={(value) => onChange({ ...draft, description: value })}
-          />
-          <TextField label="Use case" value={draft.use_case} onChange={(value) => onChange({ ...draft, use_case: value })} />
-          <TextareaField label="Goals" hint="One item per line" value={draft.goals} rows={4} onChange={(value) => onChange({ ...draft, goals: value })} />
-          <TextareaField
-            label="Pain points"
-            hint="One item per line"
-            value={draft.pain_points}
-            rows={4}
-            onChange={(value) => onChange({ ...draft, pain_points: value })}
-          />
-          <TextareaField
-            label="Alternatives"
-            hint="One item per line"
-            value={draft.alternatives}
-            rows={4}
-            onChange={(value) => onChange({ ...draft, alternatives: value })}
-          />
-          <TextareaField
-            label="Value perception explanation"
-            value={draft.value_perception_explanation}
-            rows={4}
-            onChange={(value) => onChange({ ...draft, value_perception_explanation: value })}
-          />
-
-          <div className="grid gap-4 lg:grid-cols-2">
-            <PercentField
-              label={getIcpMetricLabel("segment_weight")}
-              hint={getIcpMetricDescription("segment_weight")}
-              value={draft.segment_weight}
-              onChange={(value) => onChange({ ...draft, segment_weight: value })}
-            />
-            {icpTraitMetricKeys.map((metricKey) => (
-              <TraitSliderField
-                key={metricKey}
-                metricKey={metricKey}
-                rawValue={draft[metricKey]}
-                onChange={(value) => onChange({ ...draft, [metricKey]: value })}
-              />
-            ))}
-          </div>
-
-          <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Decision Drivers</p>
-                <p className="mt-1 text-sm text-slate-600">Pick 3-6 drivers and adjust their weights with sliders. The backend renormalizes them.</p>
-              </div>
-              <button
-                type="button"
-                onClick={() =>
-                  onChange({
-                    ...draft,
-                    driver_rows: [...draft.driver_rows, { driver: decisionDriverOptions[0], weight: 0 }],
-                  })
-                }
-                className={secondaryButtonClass}
-              >
-                Add driver
-              </button>
-            </div>
-            <div className="mt-4 space-y-3">
-              {draft.driver_rows.map((row, index) => (
-                <div key={`${row.driver}-${index}`} className="grid gap-3 md:grid-cols-[1.1fr_1.3fr_auto]">
-                  <label className="space-y-2 text-sm">
-                    <span className="font-medium text-slate-700">Driver</span>
-                    <select
-                      className={fieldClass}
-                      value={row.driver}
-                      onChange={(event) =>
-                        onChange({
-                          ...draft,
-                          driver_rows: draft.driver_rows.map((item, itemIndex) =>
-                            itemIndex === index ? { ...item, driver: event.target.value } : item,
-                          ),
-                        })
-                      }
-                    >
-                      {decisionDriverOptions.map((option) => (
-                        <option key={option} value={option}>
-                          {formatDriverLabel(option)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <DriverWeightField
-                    driver={row.driver}
-                    value={row.weight}
-                    index={index}
-                    onChange={(value) =>
-                      onChange({
-                        ...draft,
-                        driver_rows: draft.driver_rows.map((item, itemIndex) =>
-                          itemIndex === index ? { ...item, weight: value } : item,
-                        ),
-                      })
-                    }
-                  />
-                  <button
-                    type="button"
-                    onClick={() =>
-                      onChange({
-                        ...draft,
-                        driver_rows: draft.driver_rows.filter((_, itemIndex) => itemIndex !== index),
-                      })
-                    }
-                    className="mt-7 rounded-2xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-500 hover:bg-white"
-                  >
-                    Remove
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="mt-6 flex flex-wrap items-center justify-end gap-3">
-            <button type="button" onClick={onCancelEdit} className={secondaryButtonClass}>
-              Cancel
-            </button>
-            <button type="button" onClick={onSave} disabled={isSaving} className={primaryButtonClass}>
-              {isSaving ? "Saving..." : "Save changes"}
-            </button>
-          </div>
-        </section>
-      ) : (
-        <div className="mx-auto max-w-5xl">
-          <ICPDetailCard icp={icp} isSelected />
-        </div>
-      )}
+      <div className="mx-auto max-w-6xl">
+        <ICPDetailCard
+          icp={icp}
+          variant="detail"
+          isSelected
+          isConfirmed={isConfirmed}
+          onConfirm={onConfirm}
+          onEdit={editing ? onCancelEdit : onStartEdit}
+          onRegenerate={onRegenerate}
+        />
+      </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <button type="button" onClick={onPrevious} disabled={currentIndex === 0} className={secondaryButtonClass}>
@@ -1263,7 +1169,7 @@ function PercentField({
   onChange: (value: number) => void;
   hint?: string;
 }) {
-  const safeValue = getIcpMetricUiValue("segment_weight", Number.isFinite(value) ? value : 0);
+  const safeValue = Math.round((Number.isFinite(value) ? value : 0) * 1000) / 10;
 
   return (
     <label className="space-y-2 text-sm">
@@ -1277,7 +1183,7 @@ function PercentField({
           min={1}
           max={100}
           step={0.1}
-          onChange={(event) => onChange(getIcpMetricRawValue("segment_weight", Number(event.target.value)))}
+          onChange={(event) => onChange(Number(event.target.value) / 100)}
         />
         <span className="pointer-events-none absolute inset-y-0 right-4 flex items-center text-sm font-medium text-slate-500">
           %
@@ -1321,98 +1227,327 @@ function NumberField({
   );
 }
 
-function TraitSliderField({
-  metricKey,
-  rawValue,
+function ICPEditSheet({
+  icp,
+  draft,
+  segmentWeightTotal,
+  isSaving,
+  onClose,
   onChange,
+  onSave,
 }: {
-  metricKey: IcpTraitMetricKey;
-  rawValue: number;
-  onChange: (value: number) => void;
+  icp: ICPProfile;
+  draft: IcpDraft;
+  segmentWeightTotal: number;
+  isSaving: boolean;
+  onClose: () => void;
+  onChange: (draft: IcpDraft) => void;
+  onSave: () => void;
 }) {
-  const metadata = getIcpMetricMetadata(metricKey);
-  const uiValue = Math.round(getIcpMetricUiValue(metricKey, rawValue));
-  const band = getIcpMetricBand(rawValue, metricKey);
+  const canAddDriver = draft.driver_rows.length < Math.min(6, decisionDriverOptions.length);
 
   return (
-    <label className="space-y-2 text-sm">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <span className="font-medium text-slate-700">{metadata.label}</span>
-          <p className="mt-1 text-xs leading-5 text-slate-500">{metadata.description}</p>
+    <div className="fixed inset-0 z-50 flex justify-end">
+      <button
+        type="button"
+        aria-label="Close assumptions editor"
+        className="absolute inset-0 bg-slate-950/25"
+        onClick={onClose}
+      />
+      <aside
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="icp-assumptions-title"
+        className="relative z-10 flex h-full w-full max-w-2xl flex-col border-l border-slate-200 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.18)]"
+      >
+        <div className="border-b border-slate-200 px-6 py-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Edit assumptions</p>
+              <h2 id="icp-assumptions-title" className="mt-2 text-2xl font-semibold text-slate-950">
+                {icp.name}
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                Tune the assumptions that most affect simulation, then save to update this ICP everywhere.
+              </p>
+            </div>
+            <button type="button" onClick={onClose} className={secondaryButtonClass}>
+              Close
+            </button>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
+              Total segment share {formatSegmentShareTotal(segmentWeightTotal)}
+            </span>
+            <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
+              Quick edit fields only
+            </span>
+          </div>
         </div>
-        <span
-          className={cn(
-            "shrink-0 rounded-full border px-3 py-1 text-xs font-semibold",
-            getIcpMetricBandStyle(band),
-          )}
-        >
-          {band}
-        </span>
-      </div>
-      <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
-        <input
-          type="range"
-          min={metadata.min}
-          max={metadata.max}
-          step={metadata.step}
-          value={uiValue}
-          aria-label={metadata.label}
-          className="w-full cursor-pointer accent-slate-900"
-          onChange={(event) =>
-            onChange(getIcpMetricRawValue(metricKey, clampIcpMetricUiValue(metricKey, Number(event.target.value))))
-          }
-        />
-        <div className="mt-3 flex items-center justify-between gap-3 text-xs font-medium text-slate-500">
-          <span>{metadata.minLabel}</span>
-          <span>{metadata.maxLabel}</span>
+
+        <div className="flex-1 space-y-8 overflow-y-auto px-6 py-6">
+          <section className="space-y-4">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Segment identity</p>
+              <h3 className="mt-1 text-lg font-semibold text-slate-950">What segment are we modeling?</h3>
+            </div>
+            <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_220px]">
+              <TextField
+                label="Segment name"
+                value={draft.name}
+                onChange={(value) => onChange({ ...draft, name: value })}
+              />
+              <PercentField
+                label="Segment share"
+                hint="Share of the total modeled ICP mix."
+                value={draft.segment_weight}
+                onChange={(value) => onChange({ ...draft, segment_weight: value })}
+              />
+            </div>
+          </section>
+
+          <section className="space-y-4">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Behavioral signals</p>
+              <h3 className="mt-1 text-lg font-semibold text-slate-950">How does this segment evaluate and adopt?</h3>
+            </div>
+            <div className="space-y-4">
+              {icpSignalKeys.map((signalKey) => (
+                <SignalDotScaleField
+                  key={signalKey}
+                  signalKey={signalKey}
+                  value={getSignalLevelForDraft(draft, signalKey)}
+                  onChange={(level) => onChange(updateDraftSignalLevel(draft, signalKey, level))}
+                />
+              ))}
+            </div>
+          </section>
+
+          <section className="space-y-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Decision drivers</p>
+                <h3 className="mt-1 text-lg font-semibold text-slate-950">What matters most in the buying decision?</h3>
+              </div>
+              <button
+                type="button"
+                disabled={!canAddDriver}
+                onClick={() => onChange({ ...draft, driver_rows: [...draft.driver_rows, createEmptyDriverRow(draft.driver_rows)] })}
+                className={secondaryButtonClass}
+              >
+                Add driver
+              </button>
+            </div>
+            <div className="space-y-3">
+              {draft.driver_rows.map((row, index) => (
+                <DecisionDriverRowEditor
+                  key={`${row.driver}-${index}`}
+                  row={row}
+                  index={index}
+                  usedDrivers={draft.driver_rows.map((item) => item.driver)}
+                  onChange={(nextRow) =>
+                    onChange({
+                      ...draft,
+                      driver_rows: draft.driver_rows.map((item, rowIndex) => (rowIndex === index ? nextRow : item)),
+                    })
+                  }
+                  onRemove={() =>
+                    onChange({
+                      ...draft,
+                      driver_rows: draft.driver_rows.filter((_, rowIndex) => rowIndex !== index),
+                    })
+                  }
+                />
+              ))}
+            </div>
+          </section>
+
+          <details className="rounded-3xl border border-slate-200 bg-slate-50/80 px-5 py-4">
+            <summary className="cursor-pointer list-none text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 [&::-webkit-details-marker]:hidden">
+              Source assumptions
+            </summary>
+            <div className="mt-5 space-y-4">
+              <TextareaField
+                label="Description"
+                value={draft.description}
+                rows={4}
+                onChange={(value) => onChange({ ...draft, description: value })}
+              />
+              <TextareaField
+                label="Use case"
+                value={draft.use_case}
+                rows={4}
+                onChange={(value) => onChange({ ...draft, use_case: value })}
+              />
+              <TextareaField
+                label="Goals"
+                hint="One item per line"
+                value={draft.goals}
+                rows={4}
+                onChange={(value) => onChange({ ...draft, goals: value })}
+              />
+              <TextareaField
+                label="Pain points"
+                hint="One item per line"
+                value={draft.pain_points}
+                rows={4}
+                onChange={(value) => onChange({ ...draft, pain_points: value })}
+              />
+              <TextareaField
+                label="Alternatives"
+                hint="One item per line"
+                value={draft.alternatives}
+                rows={4}
+                onChange={(value) => onChange({ ...draft, alternatives: value })}
+              />
+              <TextareaField
+                label="Value explanation"
+                value={draft.value_perception_explanation}
+                rows={5}
+                onChange={(value) => onChange({ ...draft, value_perception_explanation: value })}
+              />
+            </div>
+          </details>
         </div>
-      </div>
-    </label>
+
+        <div className="border-t border-slate-200 px-6 py-4">
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            <button type="button" onClick={onClose} className={secondaryButtonClass}>
+              Cancel
+            </button>
+            <button type="button" onClick={onSave} disabled={isSaving} className={primaryButtonClass}>
+              {isSaving ? "Saving..." : "Save changes"}
+            </button>
+          </div>
+        </div>
+      </aside>
+    </div>
   );
 }
 
-function DriverWeightField({
-  driver,
+function SignalDotScaleField({
+  signalKey,
   value,
-  index,
   onChange,
 }: {
-  driver: string;
-  value: number;
-  index: number;
-  onChange: (value: number) => void;
+  signalKey: ICPSignalKey;
+  value: ICPSignalLevel;
+  onChange: (level: ICPSignalLevel) => void;
 }) {
-  const driverStyle = getDriverRankStyle(index);
-  const safeValue = Number.isFinite(value) ? value : 0;
+  const copy = signalCopy[signalKey];
 
   return (
-    <label className="space-y-2 text-sm">
-      <span className="font-medium text-slate-700">Weight</span>
-      <div className={cn("rounded-2xl border px-4 py-3", driverStyle.panel)}>
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className={cn("text-[11px] font-semibold uppercase tracking-[0.16em]", driverStyle.tone)}>
-              {getDriverRankLabel(index)}
-            </p>
-            <p className="mt-1 text-sm font-semibold text-slate-950">{formatDriverLabel(driver)}</p>
-          </div>
-          <div className="shrink-0 rounded-full bg-white/80 px-2.5 py-1 text-sm font-semibold text-slate-800">
-            {Math.round(safeValue * 100)}%
-          </div>
+    <fieldset className="space-y-3 rounded-3xl border border-slate-200 bg-slate-50 px-4 py-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <legend className="text-sm font-semibold text-slate-900">{copy.label}</legend>
+          <p className="mt-1 text-xs text-slate-500">{copy.helper}</p>
         </div>
-        <input
-          type="range"
-          min={0}
-          max={1}
-          step={0.01}
-          value={safeValue}
-          aria-label={`Weight for ${formatDriverLabel(driver)}`}
-          className={cn("mt-3 w-full cursor-pointer rounded-full", driverStyle.accent)}
-          onChange={(event) => onChange(Number(event.target.value))}
-        />
+        <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700">
+          {signalLevelLabels[value]}
+        </span>
       </div>
-    </label>
+      <DotScalePicker label={copy.label} value={value} onChange={(next) => onChange(next as ICPSignalLevel)} />
+      <div className="flex items-center justify-between gap-3 text-xs font-medium text-slate-500">
+        <span>{copy.minLabel}</span>
+        <span>{copy.maxLabel}</span>
+      </div>
+    </fieldset>
+  );
+}
+
+function DecisionDriverRowEditor({
+  row,
+  index,
+  usedDrivers,
+  onChange,
+  onRemove,
+}: {
+  row: { driver: string; weight: number };
+  index: number;
+  usedDrivers: string[];
+  onChange: (row: { driver: string; weight: number }) => void;
+  onRemove: () => void;
+}) {
+  const selectedLevel = getDriverWeightLevel(row.weight);
+  const availableDrivers = decisionDriverOptions.filter((option) => option === row.driver || !usedDrivers.includes(option));
+
+  return (
+    <div className="grid gap-3 rounded-3xl border border-slate-200 bg-white px-4 py-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-start">
+      <label className="space-y-2 text-sm">
+        <span className="font-medium text-slate-700">Driver</span>
+        <select
+          className={fieldClass}
+          value={row.driver}
+          onChange={(event) => onChange({ ...row, driver: event.target.value })}
+        >
+          {availableDrivers.map((option) => (
+            <option key={option} value={option}>
+              {formatDriverLabel(option)}
+            </option>
+          ))}
+        </select>
+      </label>
+      <fieldset className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <legend className="text-sm font-medium text-slate-700">Importance</legend>
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
+            {selectedLevel > 0 ? `${selectedLevel}/5` : "Off"}
+          </span>
+        </div>
+        <DotScalePicker
+          label={`Weight for ${formatDriverLabel(row.driver)}`}
+          value={selectedLevel}
+          allowZero
+          onChange={(level) => onChange({ ...row, weight: getDriverWeightFromLevel(level) })}
+        />
+      </fieldset>
+      <button type="button" onClick={onRemove} className={secondaryButtonClass}>
+        Remove
+      </button>
+    </div>
+  );
+}
+
+function DotScalePicker({
+  label,
+  value,
+  onChange,
+  allowZero = false,
+}: {
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+  allowZero?: boolean;
+}) {
+  const steps = allowZero ? [0, ...signalScale] : [...signalScale];
+  const groupName = label.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+
+  return (
+    <div className="flex flex-wrap items-center gap-2" role="radiogroup" aria-label={label}>
+      {steps.map((step) => (
+        <label key={`${label}-${step}`} className="cursor-pointer">
+          <input
+            type="radio"
+            name={groupName}
+            className="sr-only"
+            checked={value === step}
+            aria-label={step === 0 ? `${label} off` : `${label} ${step} out of 5`}
+            onChange={() => onChange(step)}
+          />
+          <span
+            className={cn(
+              "block h-3.5 w-3.5 rounded-full border transition",
+              value >= step && step !== 0 ? "border-slate-900 bg-slate-900" : "border-slate-300 bg-white",
+              step === 0 && "flex h-auto w-auto rounded-full px-2.5 py-1 text-[11px] font-semibold",
+              step === 0 && value === 0 ? "border-slate-900 bg-slate-900 text-white" : "",
+            )}
+          >
+            {step === 0 ? "Off" : <span className="sr-only">{step}</span>}
+          </span>
+        </label>
+      ))}
+    </div>
   );
 }
 
@@ -1502,8 +1637,87 @@ function roundToPercent(value: number) {
 }
 
 function formatSegmentShareTotal(value: number) {
-  return formatIcpMetricPercent(value);
+  return formatSegmentShare(Math.round(value * 1000) / 10);
 }
+
+function getSignalLevelForDraft(draft: IcpDraft, signalKey: ICPSignalKey) {
+  return getSignalLevelFromRaw(signalKey, {
+    price_sensitivity: draft.price_sensitivity,
+    switching_cost: draft.switching_cost,
+    retention_threshold: draft.retention_threshold,
+    adoption_friction: draft.adoption_friction,
+    churn_threshold: draft.churn_threshold,
+  } as ICPProfile);
+}
+
+function updateDraftSignalLevel(draft: IcpDraft, signalKey: ICPSignalKey, level: ICPSignalLevel): IcpDraft {
+  const rawValue = getRawValueFromSignalLevel(signalKey, level);
+
+  switch (signalKey) {
+    case "priceSensitivity":
+      return { ...draft, price_sensitivity: rawValue };
+    case "switchingFriction":
+      return { ...draft, switching_cost: rawValue };
+    case "proofRequirement":
+      return { ...draft, retention_threshold: rawValue };
+    case "implementationTolerance":
+      return { ...draft, adoption_friction: rawValue };
+    case "retentionStability":
+      return { ...draft, churn_threshold: rawValue };
+    default:
+      return draft;
+  }
+}
+
+function createEmptyDriverRow(existingRows: { driver: string; weight: number }[]) {
+  const used = new Set(existingRows.map((row) => row.driver));
+  const nextDriver = decisionDriverOptions.find((option) => !used.has(option)) ?? decisionDriverOptions[0];
+  return { driver: nextDriver, weight: 0 };
+}
+
+const signalLevelLabels: Record<ICPSignalLevel, string> = {
+  1: "Very low",
+  2: "Low",
+  3: "Medium",
+  4: "High",
+  5: "Very high",
+};
+
+const signalCopy: Record<
+  ICPSignalKey,
+  { label: string; helper: string; minLabel: string; maxLabel: string }
+> = {
+  priceSensitivity: {
+    label: "Price Sensitivity",
+    helper: "How strongly price shapes the buying decision.",
+    minLabel: "Price matters less",
+    maxLabel: "Price matters a lot",
+  },
+  switchingFriction: {
+    label: "Switching Friction",
+    helper: "How hard it is to displace the current setup.",
+    minLabel: "Easy to replace",
+    maxLabel: "Hard to replace",
+  },
+  proofRequirement: {
+    label: "Proof Requirement",
+    helper: "How much evidence the segment needs before committing.",
+    minLabel: "Low proof needed",
+    maxLabel: "Needs strong proof",
+  },
+  implementationTolerance: {
+    label: "Implementation Tolerance",
+    helper: "How much setup and change effort this segment can absorb.",
+    minLabel: "Easy rollout",
+    maxLabel: "Heavy rollout",
+  },
+  retentionStability: {
+    label: "Retention Stability",
+    helper: "How resilient the segment stays when value is uneven.",
+    minLabel: "Leaves quickly",
+    maxLabel: "Sticks through issues",
+  },
+};
 
 function formatKeyLabel(key: string) {
   return key

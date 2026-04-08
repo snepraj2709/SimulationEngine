@@ -1,163 +1,174 @@
-import { ICPProfile } from "@/types/api";
+import { ICPProfile as ApiICPProfile } from "@/types/api";
 
-export type IcpScalarMetricKey =
-  | "segment_weight"
-  | "price_sensitivity"
-  | "switching_cost"
-  | "churn_threshold"
-  | "retention_threshold"
-  | "adoption_friction";
+export type ICPCardVariant = "summary" | "detail";
+export type ICPSignalLevel = 1 | 2 | 3 | 4 | 5;
+export type ICPSignalKey =
+  | "priceSensitivity"
+  | "switchingFriction"
+  | "proofRequirement"
+  | "implementationTolerance"
+  | "retentionStability";
+export type ICPSimulationImpactSeverity = "high" | "medium" | "low";
+export type ICPDecisionDriverTone = "primary" | "secondary" | "supporting";
+export type ICPEditableFieldKey =
+  | "name"
+  | "segmentSharePct"
+  | "priceSensitivity"
+  | "switchingFriction"
+  | "proofRequirement"
+  | "implementationTolerance"
+  | "retentionStability"
+  | "decisionDrivers";
 
-export type IcpTraitMetricKey = Exclude<IcpScalarMetricKey, "segment_weight">;
-export type IcpTraitBand = "Low" | "Medium" | "High";
-
-type IcpMetricKind = "percent" | "trait";
-
-type IcpMetricMetadata = {
-  key: IcpScalarMetricKey;
+export interface ICPSignal {
+  key: ICPSignalKey;
   label: string;
-  description: string;
-  kind: IcpMetricKind;
+  level: ICPSignalLevel;
+  editable: boolean;
+  derived: boolean;
+  sourceField: keyof ApiICPProfile;
+}
+
+export interface ICPDecisionDriver {
+  key: string;
+  label: string;
+  rank: number;
+  weightPct: number;
+  visualWeight: number;
+  tone: ICPDecisionDriverTone;
+  editable: boolean;
+}
+
+export interface ICPSimulationImpact {
+  id: string;
+  label: string;
+  type: "pricing" | "activation" | "retention";
+  severity: ICPSimulationImpactSeverity;
+  sourceSignals: ICPSignalKey[];
+}
+
+export interface ICPEditableFieldConfig {
+  field: ICPEditableFieldKey;
+  label: string;
+  control: "text" | "percentage" | "dotScale" | "rankedDriverEditor";
+  visibleInQuickEdit: boolean;
   min?: number;
   max?: number;
-  step?: number;
-  minLabel?: string;
-  maxLabel?: string;
-  toUiValue: (value: number) => number;
-  fromUiValue: (value: number) => number;
-  interpretations?: Record<IcpTraitBand, string>;
+}
+
+export interface ICPCardProfile {
+  id: string;
+  identity: {
+    name: string;
+    summary: string;
+    segmentSharePct: number;
+    confidence?: {
+      score: number;
+      label: "Low" | "Medium" | "High";
+      source: "llm" | "derived";
+    };
+    statusLabel: "AI inferred" | "Edited" | "Confirmed";
+  };
+  buyingLogic: {
+    buysFor: string[];
+    avoidsBecause: string[];
+    winsWith: string[];
+    comparedAgainst?: string[];
+  };
+  signals: ICPSignal[];
+  decisionDrivers: ICPDecisionDriver[];
+  simulationImpact: ICPSimulationImpact[];
+  editableFields: ICPEditableFieldConfig[];
+  sourceAssumptions: {
+    description: string;
+    useCase: string;
+    goals: string[];
+    painPoints: string[];
+    alternatives: string[];
+    valueExplanation: string;
+  };
+  meta: {
+    isEdited: boolean;
+    isConfirmed: boolean;
+    displayOrder: number;
+  };
+}
+
+type SignalDescriptor = {
+  key: ICPSignalKey;
+  label: string;
+  editable: boolean;
+  derived: boolean;
+  sourceField: keyof ApiICPProfile;
+  getLevel: (icp: ApiICPProfile) => ICPSignalLevel;
+  getRawValue: (level: ICPSignalLevel) => number;
 };
 
-const traitBandStyles: Record<IcpTraitBand, string> = {
-  Low: "border-slate-200 bg-slate-100 text-slate-700",
-  Medium: "border-sky-200 bg-sky-50 text-sky-700",
-  High: "border-violet-200 bg-violet-50 text-violet-700",
-};
-
-const TRAIT_UI_MIN = 0;
-const TRAIT_UI_MAX = 100;
-const SEGMENT_SHARE_MIN = 0.01;
-const SEGMENT_SHARE_MAX = 1;
 const CHURN_THRESHOLD_MIN = -0.35;
 const CHURN_THRESHOLD_MAX = -0.05;
 const RETENTION_THRESHOLD_MIN = 0.02;
 const RETENTION_THRESHOLD_MAX = 0.15;
 
-export const icpMetricOrder: readonly IcpScalarMetricKey[] = [
-  "segment_weight",
-  "price_sensitivity",
-  "switching_cost",
-  "churn_threshold",
-  "retention_threshold",
-  "adoption_friction",
+export const signalScale = [1, 2, 3, 4, 5] as const;
+
+const signalDescriptors: SignalDescriptor[] = [
+  {
+    key: "priceSensitivity",
+    label: "Price Sensitivity",
+    editable: true,
+    derived: false,
+    sourceField: "price_sensitivity",
+    getLevel: (icp) => mapRawToLevel(icp.price_sensitivity, 0, 1),
+    getRawValue: (level) => mapLevelToRaw(level, 0, 1),
+  },
+  {
+    key: "switchingFriction",
+    label: "Switching Friction",
+    editable: true,
+    derived: false,
+    sourceField: "switching_cost",
+    getLevel: (icp) => mapRawToLevel(icp.switching_cost, 0, 1),
+    getRawValue: (level) => mapLevelToRaw(level, 0, 1),
+  },
+  {
+    key: "proofRequirement",
+    label: "Proof Requirement",
+    editable: true,
+    derived: false,
+    sourceField: "retention_threshold",
+    getLevel: (icp) => mapRawToLevel(icp.retention_threshold, RETENTION_THRESHOLD_MIN, RETENTION_THRESHOLD_MAX),
+    getRawValue: (level) => mapLevelToRaw(level, RETENTION_THRESHOLD_MIN, RETENTION_THRESHOLD_MAX),
+  },
+  {
+    key: "implementationTolerance",
+    label: "Implementation Tolerance",
+    editable: true,
+    derived: true,
+    sourceField: "adoption_friction",
+    getLevel: (icp) => mapRawToLevel(icp.adoption_friction, 1, 0),
+    getRawValue: (level) => mapLevelToRaw(level, 1, 0),
+  },
+  {
+    key: "retentionStability",
+    label: "Retention Stability",
+    editable: true,
+    derived: true,
+    sourceField: "churn_threshold",
+    getLevel: (icp) => mapRawToLevel(icp.churn_threshold, CHURN_THRESHOLD_MAX, CHURN_THRESHOLD_MIN),
+    getRawValue: (level) => mapLevelToRaw(level, CHURN_THRESHOLD_MAX, CHURN_THRESHOLD_MIN),
+  },
 ];
 
-export const icpMetricMetadata: Record<IcpScalarMetricKey, IcpMetricMetadata> = {
-  segment_weight: {
-    key: "segment_weight",
-    label: "Estimated segment share",
-    description: "Percent of the total ICP mix this segment represents.",
-    kind: "percent",
-    min: 1,
-    max: 100,
-    step: 0.1,
-    toUiValue: (value) => clamp(value * 100, 1, 100),
-    fromUiValue: (value) => clamp(value / 100, SEGMENT_SHARE_MIN, SEGMENT_SHARE_MAX),
-  },
-  price_sensitivity: {
-    key: "price_sensitivity",
-    label: "Price sensitivity",
-    description: "How strongly price affects this segment's decision.",
-    kind: "trait",
-    min: TRAIT_UI_MIN,
-    max: TRAIT_UI_MAX,
-    step: 1,
-    minLabel: "Price matters less",
-    maxLabel: "Price matters a lot",
-    toUiValue: (value) => clamp(value * 100, TRAIT_UI_MIN, TRAIT_UI_MAX),
-    fromUiValue: (value) => clamp(value / 100, 0, 1),
-    interpretations: {
-      Low: "This segment is less likely to react strongly to pricing changes.",
-      Medium: "This segment notices pricing changes and weighs them against value.",
-      High: "This segment reacts strongly to pricing changes.",
-    },
-  },
-  switching_cost: {
-    key: "switching_cost",
-    label: "Switching resistance",
-    description: "How hard this segment is to pull away from its current setup.",
-    kind: "trait",
-    min: TRAIT_UI_MIN,
-    max: TRAIT_UI_MAX,
-    step: 1,
-    minLabel: "Easy to replace",
-    maxLabel: "Hard to replace",
-    toUiValue: (value) => clamp(value * 100, TRAIT_UI_MIN, TRAIT_UI_MAX),
-    fromUiValue: (value) => clamp(value / 100, 0, 1),
-    interpretations: {
-      Low: "This segment can replace its current setup without much friction.",
-      Medium: "This segment needs a credible reason to switch from its current setup.",
-      High: "This segment is hard to pull away from what it already uses.",
-    },
-  },
-  churn_threshold: {
-    key: "churn_threshold",
-    label: "Retention resilience",
-    description: "How much disappointment this segment tolerates before leaving.",
-    kind: "trait",
-    min: TRAIT_UI_MIN,
-    max: TRAIT_UI_MAX,
-    step: 1,
-    minLabel: "Leaves quickly",
-    maxLabel: "Sticks through issues",
-    toUiValue: (value) =>
-      mapRange(clamp(value, CHURN_THRESHOLD_MIN, CHURN_THRESHOLD_MAX), CHURN_THRESHOLD_MAX, CHURN_THRESHOLD_MIN, TRAIT_UI_MIN, TRAIT_UI_MAX),
-    fromUiValue: (value) =>
-      mapRange(clamp(value, TRAIT_UI_MIN, TRAIT_UI_MAX), TRAIT_UI_MIN, TRAIT_UI_MAX, CHURN_THRESHOLD_MAX, CHURN_THRESHOLD_MIN),
-    interpretations: {
-      Low: "This segment leaves quickly when the experience slips.",
-      Medium: "This segment will tolerate some issues before leaving.",
-      High: "This segment tends to stick through issues before churning.",
-    },
-  },
-  retention_threshold: {
-    key: "retention_threshold",
-    label: "Expansion hurdle",
-    description: "How much extra proof this segment needs before upgrading or expanding.",
-    kind: "trait",
-    min: TRAIT_UI_MIN,
-    max: TRAIT_UI_MAX,
-    step: 1,
-    minLabel: "Easy to expand",
-    maxLabel: "Needs strong proof",
-    toUiValue: (value) => mapRange(clamp(value, RETENTION_THRESHOLD_MIN, RETENTION_THRESHOLD_MAX), RETENTION_THRESHOLD_MIN, RETENTION_THRESHOLD_MAX, TRAIT_UI_MIN, TRAIT_UI_MAX),
-    fromUiValue: (value) =>
-      mapRange(clamp(value, TRAIT_UI_MIN, TRAIT_UI_MAX), TRAIT_UI_MIN, TRAIT_UI_MAX, RETENTION_THRESHOLD_MIN, RETENTION_THRESHOLD_MAX),
-    interpretations: {
-      Low: "This segment is relatively easy to expand once the core value is proven.",
-      Medium: "This segment needs clear proof before expanding.",
-      High: "This segment needs strong additional proof before upgrading or expanding.",
-    },
-  },
-  adoption_friction: {
-    key: "adoption_friction",
-    label: "Rollout effort",
-    description: "How much setup and change effort this segment can handle.",
-    kind: "trait",
-    min: TRAIT_UI_MIN,
-    max: TRAIT_UI_MAX,
-    step: 1,
-    minLabel: "Easy rollout",
-    maxLabel: "Heavy rollout",
-    toUiValue: (value) => clamp(value * 100, TRAIT_UI_MIN, TRAIT_UI_MAX),
-    fromUiValue: (value) => clamp(value / 100, 0, 1),
-    interpretations: {
-      Low: "This segment can adopt quickly with minimal rollout effort.",
-      Medium: "This segment can handle some rollout work if the value is clear.",
-      High: "This segment expects a heavier rollout and change-management effort.",
-    },
-  },
-};
+export const icpQuickEditFields: ICPEditableFieldConfig[] = [
+  { field: "name", label: "Segment name", control: "text", visibleInQuickEdit: true },
+  { field: "segmentSharePct", label: "Segment share", control: "percentage", visibleInQuickEdit: true, min: 1, max: 100 },
+  { field: "priceSensitivity", label: "Price Sensitivity", control: "dotScale", visibleInQuickEdit: true, min: 1, max: 5 },
+  { field: "switchingFriction", label: "Switching Friction", control: "dotScale", visibleInQuickEdit: true, min: 1, max: 5 },
+  { field: "proofRequirement", label: "Proof Requirement", control: "dotScale", visibleInQuickEdit: true, min: 1, max: 5 },
+  { field: "implementationTolerance", label: "Implementation Tolerance", control: "dotScale", visibleInQuickEdit: true, min: 1, max: 5 },
+  { field: "retentionStability", label: "Retention Stability", control: "dotScale", visibleInQuickEdit: true, min: 1, max: 5 },
+  { field: "decisionDrivers", label: "Top decision drivers", control: "rankedDriverEditor", visibleInQuickEdit: true },
+];
 
 export const driverRankStyles = [
   {
@@ -202,6 +213,55 @@ export const driverRankStyles = [
   },
 ] as const;
 
+export function mapApiICPToCardModel(
+  icp: ApiICPProfile,
+  options: { isConfirmed?: boolean; confidence?: ICPCardProfile["identity"]["confidence"] } = {},
+): ICPCardProfile {
+  const decisionDrivers = buildDecisionDrivers(icp);
+  const signals = signalDescriptors.map((descriptor) => ({
+    key: descriptor.key,
+    label: descriptor.label,
+    level: descriptor.getLevel(icp),
+    editable: descriptor.editable,
+    derived: descriptor.derived,
+    sourceField: descriptor.sourceField,
+  }));
+
+  return {
+    id: icp.id,
+    identity: {
+      name: icp.name,
+      summary: buildSegmentSummary(icp.description, icp.use_case),
+      segmentSharePct: Math.round(icp.segment_weight * 1000) / 10,
+      confidence: options.confidence,
+      statusLabel: options.isConfirmed ? "Confirmed" : icp.is_user_edited ? "Edited" : "AI inferred",
+    },
+    buyingLogic: {
+      buysFor: compressList(icp.goals_json, 2),
+      avoidsBecause: compressList(icp.pain_points_json, 2),
+      winsWith: buildWinsWith(icp),
+      comparedAgainst: icp.alternatives_json,
+    },
+    signals,
+    decisionDrivers,
+    simulationImpact: buildSimulationImpact(signals, decisionDrivers),
+    editableFields: icpQuickEditFields,
+    sourceAssumptions: {
+      description: icp.description,
+      useCase: icp.use_case,
+      goals: icp.goals_json,
+      painPoints: icp.pain_points_json,
+      alternatives: icp.alternatives_json,
+      valueExplanation: icp.value_perception_explanation,
+    },
+    meta: {
+      isEdited: icp.is_user_edited,
+      isConfirmed: Boolean(options.isConfirmed),
+      displayOrder: icp.display_order,
+    },
+  };
+}
+
 export function formatDriverLabel(driver: string) {
   return driver
     .split("_")
@@ -209,67 +269,43 @@ export function formatDriverLabel(driver: string) {
     .join(" ");
 }
 
-export function getIcpMetricMetadata(key: IcpScalarMetricKey) {
-  return icpMetricMetadata[key];
+export function formatSegmentShare(value: number) {
+  return `${Number.isInteger(value) ? value : value.toFixed(1)}%`;
 }
 
-export function getIcpMetricLabel(key: IcpScalarMetricKey) {
-  return getIcpMetricMetadata(key).label;
+export function formatSignalDots(level: ICPSignalLevel) {
+  return signalScale.map((step) => step <= level);
 }
 
-export function getIcpMetricDescription(key: IcpScalarMetricKey) {
-  return getIcpMetricMetadata(key).description;
-}
-
-export function getIcpMetricUiValue(key: IcpScalarMetricKey, rawValue: number) {
-  return getIcpMetricMetadata(key).toUiValue(rawValue);
-}
-
-export function getIcpMetricRawValue(key: IcpScalarMetricKey, uiValue: number) {
-  return getIcpMetricMetadata(key).fromUiValue(uiValue);
-}
-
-export function getIcpMetricBand(rawValue: number, key: IcpTraitMetricKey): IcpTraitBand {
-  const value = getIcpMetricUiValue(key, rawValue);
-  if (value <= 33) return "Low";
-  if (value <= 66) return "Medium";
+export function getSignalLevelLabel(level: ICPSignalLevel) {
+  if (level <= 2) return "Low";
+  if (level === 3) return "Medium";
   return "High";
 }
 
-export function getIcpMetricBandStyle(band: IcpTraitBand) {
-  return traitBandStyles[band];
+export function getSignalToneClass(level: ICPSignalLevel) {
+  if (level <= 2) return "text-slate-500";
+  if (level === 3) return "text-slate-700";
+  return "text-slate-950";
 }
 
-export function getIcpMetricInterpretation(rawValue: number, key: IcpTraitMetricKey) {
-  return getIcpMetricMetadata(key).interpretations?.[getIcpMetricBand(rawValue, key)] ?? "";
+export function getSignalLevelFromRaw(key: ICPSignalKey, icp: Pick<ApiICPProfile, keyof ApiICPProfile>) {
+  const descriptor = signalDescriptors.find((item) => item.key === key);
+  if (!descriptor) return 3;
+  return descriptor.getLevel(icp as ApiICPProfile);
 }
 
-export function formatIcpMetricPercent(rawValue: number) {
-  const rounded = Math.round(rawValue * 1000) / 10;
-  return Number.isInteger(rounded) ? `${rounded}%` : `${rounded.toFixed(1)}%`;
+export function getRawValueFromSignalLevel(key: ICPSignalKey, level: ICPSignalLevel) {
+  const descriptor = signalDescriptors.find((item) => item.key === key);
+  if (!descriptor) return 0;
+  return descriptor.getRawValue(level);
 }
 
-export function isIcpTraitMetric(key: IcpScalarMetricKey): key is IcpTraitMetricKey {
-  return key !== "segment_weight";
+export function getSignalDescriptor(key: ICPSignalKey) {
+  return signalDescriptors.find((item) => item.key === key);
 }
 
-export function clampIcpMetricUiValue(key: IcpScalarMetricKey, value: number) {
-  const metadata = getIcpMetricMetadata(key);
-  return clamp(value, metadata.min ?? TRAIT_UI_MIN, metadata.max ?? TRAIT_UI_MAX);
-}
-
-export function getDriverRankStyle(index: number) {
-  return driverRankStyles[Math.min(index, driverRankStyles.length - 1)];
-}
-
-export function getDriverRankLabel(index: number) {
-  if (index === 0) return "Primary driver";
-  if (index === 1) return "Secondary driver";
-  if (index === 2) return "Third strongest signal";
-  return "Supporting signal";
-}
-
-export function getSelectedDrivers(icp: Pick<ICPProfile, "decision_drivers_json" | "driver_weights_json">) {
+export function getSelectedDrivers(icp: Pick<ApiICPProfile, "decision_drivers_json" | "driver_weights_json">) {
   const orderedDrivers = [...icp.decision_drivers_json];
   for (const driver of Object.keys(icp.driver_weights_json)) {
     if (!orderedDrivers.includes(driver)) {
@@ -279,18 +315,166 @@ export function getSelectedDrivers(icp: Pick<ICPProfile, "decision_drivers_json"
   return orderedDrivers;
 }
 
-export function getRankedDriverWeights(icp: Pick<ICPProfile, "decision_drivers_json" | "driver_weights_json">) {
+export function getRankedDriverWeights(icp: Pick<ApiICPProfile, "decision_drivers_json" | "driver_weights_json">) {
   return getSelectedDrivers(icp)
     .map((driver) => [driver, Number(icp.driver_weights_json[driver] ?? 0)] as const)
     .sort(([, left], [, right]) => right - left);
 }
 
-export function getEditableDriverRows(icp: Pick<ICPProfile, "decision_drivers_json" | "driver_weights_json">) {
+export function getEditableDriverRows(icp: Pick<ApiICPProfile, "decision_drivers_json" | "driver_weights_json">) {
   return getRankedDriverWeights(icp).map(([driver, weight]) => ({ driver, weight }));
+}
+
+export function getDriverRankStyle(index: number) {
+  return driverRankStyles[Math.min(index, driverRankStyles.length - 1)];
+}
+
+export function getDriverRankLabel(index: number) {
+  if (index === 0) return "Primary";
+  if (index === 1) return "Secondary";
+  if (index === 2) return "Third";
+  return "Support";
+}
+
+export function getDriverWeightLevel(weight: number) {
+  if (weight <= 0) return 0;
+  return Math.min(5, Math.max(1, Math.round(weight * 5)));
+}
+
+export function getDriverWeightFromLevel(level: number) {
+  if (level <= 0) return 0;
+  return Math.min(1, Math.max(0.1, level / 5));
+}
+
+function buildDecisionDrivers(icp: ApiICPProfile): ICPDecisionDriver[] {
+  const ranked = getRankedDriverWeights(icp);
+  const topWeight = ranked[0]?.[1] ?? 1;
+
+  return ranked.map(([driver, weight], index) => ({
+    key: driver,
+    label: formatDriverLabel(driver),
+    rank: index + 1,
+    weightPct: Math.round(weight * 100),
+    visualWeight: topWeight > 0 ? weight / topWeight : 0,
+    tone: index === 0 ? "primary" : index === 1 ? "secondary" : "supporting",
+    editable: true,
+  }));
+}
+
+function buildSimulationImpact(signals: ICPSignal[], drivers: ICPDecisionDriver[]): ICPSimulationImpact[] {
+  const signalMap = Object.fromEntries(signals.map((signal) => [signal.key, signal])) as Record<ICPSignalKey, ICPSignal>;
+  const topDriverKeys = drivers.slice(0, 3).map((driver) => driver.key);
+  const priceWeightBonus = topDriverKeys.some((driver) => ["price_affordability", "value_for_money", "budget_predictability"].includes(driver)) ? 1 : 0;
+  const rolloutBonus = topDriverKeys.some((driver) => ["implementation_complexity", "team_enablement", "automation_coverage"].includes(driver)) ? 1 : 0;
+  const retentionBonus = topDriverKeys.some((driver) => ["support_reliability", "team_enablement", "feature_completeness"].includes(driver)) ? 1 : 0;
+
+  const pricingLevel = clampLevel(signalMap.priceSensitivity.level + priceWeightBonus);
+  const rolloutDragLevel = clampLevel((6 - signalMap.implementationTolerance.level) + rolloutBonus);
+  const retentionRiskLevel = clampLevel(Math.max(6 - signalMap.retentionStability.level, signalMap.proofRequirement.level) + retentionBonus);
+
+  return [
+    {
+      id: "pricing-elasticity",
+      label:
+        pricingLevel >= 4
+          ? "Pricing -> High elasticity"
+          : pricingLevel === 3
+            ? "Pricing -> Medium elasticity"
+            : "Pricing -> Low elasticity",
+      type: "pricing",
+      severity: levelToSeverity(pricingLevel),
+      sourceSignals: ["priceSensitivity"],
+    },
+    {
+      id: "activation-drag",
+      label:
+        rolloutDragLevel >= 4
+          ? "Activation -> High rollout drag"
+          : rolloutDragLevel === 3
+            ? "Activation -> Medium rollout drag"
+            : "Activation -> Low rollout drag",
+      type: "activation",
+      severity: levelToSeverity(rolloutDragLevel),
+      sourceSignals: ["implementationTolerance"],
+    },
+    {
+      id: "retention-risk",
+      label:
+        retentionRiskLevel >= 4
+          ? "Retention -> Low churn tolerance"
+          : retentionRiskLevel === 3
+            ? "Retention -> Moderate churn tolerance"
+            : "Retention -> Stable renewal base",
+      type: "retention",
+      severity: levelToSeverity(retentionRiskLevel),
+      sourceSignals: ["retentionStability", "proofRequirement"],
+    },
+  ];
+}
+
+function buildSegmentSummary(description: string, useCase: string) {
+  const segments = [description.trim(), useCase.trim()].filter(Boolean);
+  const combined = segments.join(" ");
+  return truncateSentence(combined || description || useCase, 110);
+}
+
+function buildWinsWith(icp: ApiICPProfile) {
+  const useCase = trimSentence(icp.use_case);
+  const valueLines = splitSentences(icp.value_perception_explanation).map(trimSentence).filter(Boolean);
+  return compressList([useCase, ...valueLines], 2);
+}
+
+function compressList(items: string[], maxItems: number) {
+  return items
+    .map((item) => trimSentence(item))
+    .filter(Boolean)
+    .slice(0, maxItems)
+    .map((item) => truncateSentence(item, 72));
+}
+
+function trimSentence(value: string) {
+  return value.trim().replace(/[.:\s]+$/g, "");
+}
+
+function truncateSentence(value: string, maxLength: number) {
+  if (value.length <= maxLength) return value;
+  const slice = value.slice(0, maxLength - 1).trim();
+  const boundary = Math.max(slice.lastIndexOf(" "), slice.lastIndexOf(","), slice.lastIndexOf(";"));
+  return `${(boundary > 20 ? slice.slice(0, boundary) : slice).trim()}...`;
+}
+
+function splitSentences(value: string) {
+  return value
+    .split(/[.!?]\s+/)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+}
+
+function mapRawToLevel(value: number, inputMin: number, inputMax: number): ICPSignalLevel {
+  const scaled = mapRange(clamp(value, Math.min(inputMin, inputMax), Math.max(inputMin, inputMax)), inputMin, inputMax, 1, 5);
+  return clampLevel(Math.round(scaled) as ICPSignalLevel);
+}
+
+function mapLevelToRaw(level: ICPSignalLevel, outputMin: number, outputMax: number) {
+  return roundToTwoDecimals(mapRange(level, 1, 5, outputMin, outputMax));
+}
+
+function levelToSeverity(level: number): ICPSimulationImpactSeverity {
+  if (level >= 4) return "high";
+  if (level === 3) return "medium";
+  return "low";
+}
+
+function roundToTwoDecimals(value: number) {
+  return Math.round(value * 100) / 100;
 }
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
+}
+
+function clampLevel(value: number): ICPSignalLevel {
+  return Math.min(5, Math.max(1, Math.round(value))) as ICPSignalLevel;
 }
 
 function mapRange(value: number, inputMin: number, inputMax: number, outputMin: number, outputMax: number) {
