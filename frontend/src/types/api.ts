@@ -6,6 +6,9 @@ export type EditableControl = "text" | "textarea" | "percentage" | "dot_scale" |
 export type ImpactSeverity = "high" | "medium" | "low";
 export type ImpactDirection = "positive" | "negative" | "mixed" | "neutral";
 export type EffortLevel = "low" | "medium" | "high";
+export type ProductReviewStatus = "ready" | "needs_review";
+export type ProductFeatureImportance = "high" | "medium" | "low";
+export type ProductUncertaintySeverity = "high" | "medium" | "low";
 export type WorkflowStage =
   | "product_understanding"
   | "icp_profiles"
@@ -45,6 +48,76 @@ export interface AnalysisCreateResponse {
   cloned_from_analysis_id: string | null;
 }
 
+export interface ProductBusinessSignal {
+  key: string;
+  label: string;
+  value: string;
+  score_1_to_5: 1 | 2 | 3 | 4 | 5 | null;
+  confidence: number;
+  editable: boolean;
+}
+
+export interface ProductCustomerLogic {
+  core_job_to_be_done: string;
+  why_they_buy: string[];
+  why_they_hesitate: string[];
+  what_it_replaces: string[];
+}
+
+export interface ProductMonetizationModel {
+  pricing_visibility: string;
+  pricing_model: string;
+  monetization_hypothesis: string;
+  sales_motion: string;
+}
+
+export interface ProductFeatureCluster {
+  key: string;
+  label: string;
+  importance: ProductFeatureImportance;
+  description: string | null;
+}
+
+export interface ProductSimulationLever {
+  key: string;
+  label: string;
+  why_it_matters: string;
+  confidence: number;
+  editable: boolean;
+}
+
+export interface ProductUncertainty {
+  key: string;
+  label: string;
+  reason: string;
+  severity: ProductUncertaintySeverity;
+  needs_user_review: boolean;
+}
+
+export interface ProductSourceCoverage {
+  fields_observed_explicitly: string[];
+  fields_inferred: string[];
+  fields_missing: string[];
+}
+
+export interface ProductUnderstandingViewModel {
+  id: string;
+  company_name: string;
+  product_name: string;
+  summary_line: string;
+  category: string;
+  subcategory: string;
+  confidence: number;
+  review_status: ProductReviewStatus;
+  business_model_signals: ProductBusinessSignal[];
+  customer_logic: ProductCustomerLogic;
+  monetization_model: ProductMonetizationModel;
+  feature_clusters: ProductFeatureCluster[];
+  simulation_levers: ProductSimulationLever[];
+  uncertainties: ProductUncertainty[];
+  source_coverage: ProductSourceCoverage;
+}
+
 export interface ExtractedProductData {
   id: string;
   analysis_id: string;
@@ -56,20 +129,8 @@ export interface ExtractedProductData {
   pricing_model: string;
   monetization_hypothesis: string;
   raw_extracted_json: Record<string, unknown>;
-  normalized_json: {
-    company_name: string;
-    product_name: string;
-    category: string;
-    subcategory: string;
-    positioning_summary: string;
-    pricing_model: string;
-    feature_clusters: string[];
-    monetization_hypothesis: string;
-    target_customer_signals: string[];
-    confidence_score: number;
-    confidence_scores: Record<string, number>;
-    warnings: string[];
-  };
+  normalized_json: Record<string, unknown>;
+  view_model: ProductUnderstandingViewModel;
   confidence_score: number;
   is_user_edited: boolean;
   edited_at: string | null;

@@ -50,6 +50,7 @@ def test_create_and_progress_analysis_step_by_step(
     assert detail["status"] == "awaiting_review"
     assert detail["current_stage"] == "product_understanding"
     assert detail["extracted_product_data"]["company_name"] == "Acme"
+    assert detail["extracted_product_data"]["view_model"]["business_model_signals"][0]["key"] == "buyer_type"
     assert detail["icp_profiles"] == []
     assert detail["scenarios"] == []
 
@@ -120,14 +121,42 @@ def test_product_edit_reopens_analysis_and_clears_downstream(
         json={
             "company_name": "Acme",
             "product_name": "Acme Growth Platform",
+            "summary_line": "Updated summary from the user.",
             "category": "B2B Software",
             "subcategory": "Revenue Operations",
-            "positioning_summary": "Updated summary from the user.",
-            "pricing_model": "sales_led_custom_pricing",
-            "feature_clusters": ["workflow automation", "renewal analytics"],
-            "monetization_hypothesis": "Annual contracts for operations-heavy teams.",
-            "target_customer_signals": ["revops leaders", "customer success leaders"],
-            "warnings": [],
+            "buyer_type": "RevOps leaders",
+            "business_model_signals": [
+                {"key": "buyer_type", "label": "Buyer Type", "value": "RevOps leaders", "confidence": 0.8, "editable": True},
+                {"key": "sales_motion", "label": "Sales Motion", "value": "Demo-led / enterprise sales", "confidence": 0.76, "editable": True},
+                {"key": "pricing_visibility", "label": "Pricing Visibility", "value": "Medium", "score_1_to_5": 3, "confidence": 0.74, "editable": True},
+                {"key": "deployment_complexity", "label": "Deployment Complexity", "value": "High", "score_1_to_5": 4, "confidence": 0.74, "editable": True},
+                {"key": "time_to_value", "label": "Time-to-Value", "value": "Moderate", "score_1_to_5": 3, "confidence": 0.74, "editable": True},
+                {"key": "workflow_criticality", "label": "Workflow Criticality", "value": "High", "score_1_to_5": 4, "confidence": 0.74, "editable": True},
+                {"key": "compliance_sensitivity", "label": "Compliance Sensitivity", "value": "Moderate", "score_1_to_5": 3, "confidence": 0.7, "editable": True},
+                {"key": "switching_friction", "label": "Switching Friction", "value": "High", "score_1_to_5": 4, "confidence": 0.74, "editable": True},
+                {"key": "expansion_potential", "label": "Expansion Potential", "value": "High", "score_1_to_5": 4, "confidence": 0.74, "editable": True},
+                {"key": "monetization_style", "label": "Monetization Style", "value": "Contract revenue", "confidence": 0.74, "editable": True},
+            ],
+            "customer_logic": {
+                "core_job_to_be_done": "Automate onboarding and renewal workflows.",
+                "why_they_buy": ["Reduce manual work", "Improve renewal visibility"],
+                "why_they_hesitate": ["Implementation complexity"],
+                "what_it_replaces": ["spreadsheets", "point tools"],
+            },
+            "monetization_model": {
+                "pricing_visibility": "medium",
+                "pricing_model": "sales_led_custom_pricing",
+                "monetization_hypothesis": "Annual contracts for operations-heavy teams.",
+                "sales_motion": "Demo-led / enterprise sales",
+            },
+            "feature_clusters": [
+                {"key": "workflow-automation", "label": "workflow automation", "importance": "high", "description": "Automates lifecycle work."},
+                {"key": "renewal-analytics", "label": "renewal analytics", "importance": "high", "description": "Tracks renewal health."},
+            ],
+            "simulation_levers": [
+                {"key": "pricing", "label": "Pricing", "why_it_matters": "Pricing changes affect renewal conversion.", "confidence": 0.78, "editable": True}
+            ],
+            "uncertainties": [],
         },
         headers=auth_headers,
     )
@@ -136,6 +165,7 @@ def test_product_edit_reopens_analysis_and_clears_downstream(
     detail = product_update.json()
     assert detail["current_stage"] == "product_understanding"
     assert detail["extracted_product_data"]["is_user_edited"] is True
+    assert detail["extracted_product_data"]["view_model"]["summary_line"] == "Updated summary from the user."
     assert detail["icp_profiles"] == []
     assert detail["scenarios"] == []
     assert detail["simulation_runs"] == []

@@ -35,6 +35,7 @@ import {
   type ICPSignalLevel,
 } from "@/components/analysis/icpDisplay";
 import { LoadingState } from "@/components/analysis/LoadingState";
+import { ProductUnderstandingActionsBar } from "@/components/analysis/ProductUnderstandingActionsBar";
 import { ProductSummaryPanel } from "@/components/analysis/ProductSummaryPanel";
 import { ScenarioReviewCard } from "@/components/analysis/ScenarioReviewCard";
 import { ScenarioSuggestionList } from "@/components/analysis/ScenarioSuggestionList";
@@ -45,7 +46,17 @@ import { AppShell } from "@/components/layout/AppShell";
 import { useAnalysisPolling } from "@/hooks/use-analysis-polling";
 import { createPendingAnalysisDetail, getLatestRunForScenario, scenarioSummaries, upsertAnalysisListItem } from "@/lib/analysis";
 import { useUIStore } from "@/store/ui-store";
-import { AnalysisDetail, AnalysisListItem, ICPProfile, Scenario, WorkflowStage } from "@/types/api";
+import {
+  AnalysisDetail,
+  AnalysisListItem,
+  ICPProfile,
+  ProductBusinessSignal,
+  ProductFeatureCluster,
+  ProductSimulationLever,
+  ProductUncertainty,
+  Scenario,
+  WorkflowStage,
+} from "@/types/api";
 import { cn } from "@/lib/utils";
 
 const decisionDriverOptions = [
@@ -79,14 +90,22 @@ const icpSignalKeys: readonly ICPSignalKey[] = [
 type ProductDraft = {
   company_name: string;
   product_name: string;
+  summary_line: string;
   category: string;
   subcategory: string;
-  positioning_summary: string;
+  buyer_type: string;
+  pricing_visibility: string;
+  sales_motion: string;
   pricing_model: string;
+  business_model_signals: ProductBusinessSignal[];
   feature_clusters: string;
   monetization_hypothesis: string;
-  target_customer_signals: string;
-  warnings: string;
+  core_job_to_be_done: string;
+  why_they_buy: string;
+  why_they_hesitate: string;
+  what_it_replaces: string;
+  simulation_levers: ProductSimulationLever[];
+  uncertainties: ProductUncertainty[];
 };
 
 type IcpDraft = {
@@ -207,14 +226,26 @@ export function AnalysisResultPage() {
       updateProductUnderstanding(analysisId, {
         company_name: payload.company_name,
         product_name: payload.product_name,
+        summary_line: payload.summary_line,
         category: payload.category,
         subcategory: payload.subcategory,
-        positioning_summary: payload.positioning_summary,
-        pricing_model: payload.pricing_model,
-        feature_clusters: splitLines(payload.feature_clusters),
-        monetization_hypothesis: payload.monetization_hypothesis,
-        target_customer_signals: splitLines(payload.target_customer_signals),
-        warnings: splitLines(payload.warnings),
+        buyer_type: payload.buyer_type,
+        business_model_signals: buildProductSignalPayload(payload),
+        customer_logic: {
+          core_job_to_be_done: payload.core_job_to_be_done,
+          why_they_buy: splitLines(payload.why_they_buy),
+          why_they_hesitate: splitLines(payload.why_they_hesitate),
+          what_it_replaces: splitLines(payload.what_it_replaces),
+        },
+        monetization_model: {
+          pricing_visibility: payload.pricing_visibility,
+          pricing_model: payload.pricing_model,
+          monetization_hypothesis: payload.monetization_hypothesis,
+          sales_motion: payload.sales_motion,
+        },
+        feature_clusters: buildFeatureClusterPayload(payload),
+        simulation_levers: payload.simulation_levers,
+        uncertainties: payload.uncertainties,
       }),
     onSuccess: (detail) => {
       commitAnalysisDetail(detail);
@@ -417,22 +448,10 @@ export function AnalysisResultPage() {
         {stage === "product_understanding" && analysis.extracted_product_data ? (
           <ProductUnderstandingStage
             data={analysis.extracted_product_data}
-            editing={editingProduct}
-            draft={productDraft ?? createProductDraft(analysis.extracted_product_data)}
-            isSaving={updateProductMutation.isPending}
             isProceeding={proceedMutation.isPending}
             onStartEdit={() => {
               setEditingProduct(true);
               setProductDraft(createProductDraft(analysis.extracted_product_data!));
-            }}
-            onCancelEdit={() => {
-              setEditingProduct(false);
-              setProductDraft(null);
-            }}
-            onChange={(next) => setProductDraft(next)}
-            onSave={() => {
-              const draft = productDraft ?? createProductDraft(analysis.extracted_product_data!);
-              updateProductMutation.mutate(draft);
             }}
             onProceed={() => proceedMutation.mutate({ expected_stage: "product_understanding", run_async: false })}
           />
@@ -650,6 +669,22 @@ export function AnalysisResultPage() {
           <ErrorState title="Hard refresh failed" message={refreshMutation.error.message} />
         ) : null}
       </div>
+      {editingProduct && analysis.extracted_product_data && productDraft && typeof document !== "undefined"
+        ? createPortal(
+            <ProductUnderstandingEditSheet
+              data={analysis.extracted_product_data}
+              draft={productDraft}
+              isSaving={updateProductMutation.isPending}
+              onClose={() => {
+                setEditingProduct(false);
+                setProductDraft(null);
+              }}
+              onChange={setProductDraft}
+              onSave={() => updateProductMutation.mutate(productDraft)}
+            />,
+            document.body,
+          )
+        : null}
       {editingIcp && icpDraft && typeof document !== "undefined"
         ? createPortal(
             <ICPEditSheet
@@ -673,25 +708,13 @@ export function AnalysisResultPage() {
 
 function ProductUnderstandingStage({
   data,
-  editing,
-  draft,
-  isSaving,
   isProceeding,
   onStartEdit,
-  onCancelEdit,
-  onChange,
-  onSave,
   onProceed,
 }: {
   data: AnalysisDetail["extracted_product_data"];
-  editing: boolean;
-  draft: ProductDraft;
-  isSaving: boolean;
   isProceeding: boolean;
   onStartEdit: () => void;
-  onCancelEdit: () => void;
-  onChange: (draft: ProductDraft) => void;
-  onSave: () => void;
   onProceed: () => void;
 }) {
   if (!data) return null;
@@ -699,11 +722,11 @@ function ProductUnderstandingStage({
     <div className="space-y-4">
       <SectionHeader
         eyebrow="Step 1"
-        title="Review the product understanding first"
-        body="Next: generate ICP profiles from the reviewed product understanding."
+        title="Confirm the business interpretation"
+        body="This step should validate what the business sells, who buys it, and which levers matter before ICP generation starts."
         reviewStateLabel={data.is_user_edited ? "Reviewed by you" : "Ready to review"}
-        actionLabel={editing ? "Cancel" : "Edit"}
-        onAction={editing ? onCancelEdit : onStartEdit}
+        actionLabel="Edit key assumptions"
+        onAction={onStartEdit}
         statusBadge={
           data.is_user_edited ? (
             <span className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700">
@@ -716,74 +739,8 @@ function ProductUnderstandingStage({
           )
         }
       />
-
-      {editing ? (
-        <section className="panel p-6">
-          <div className="grid gap-4 md:grid-cols-2">
-            <TextField label="Company name" value={draft.company_name} onChange={(value) => onChange({ ...draft, company_name: value })} />
-            <TextField label="Product name" value={draft.product_name} onChange={(value) => onChange({ ...draft, product_name: value })} />
-            <TextField label="Category" value={draft.category} onChange={(value) => onChange({ ...draft, category: value })} />
-            <TextField label="Subcategory" value={draft.subcategory} onChange={(value) => onChange({ ...draft, subcategory: value })} />
-          </div>
-          <div className="mt-4 grid gap-4">
-            <TextareaField
-              label="Positioning summary"
-              value={draft.positioning_summary}
-              rows={4}
-              onChange={(value) => onChange({ ...draft, positioning_summary: value })}
-            />
-            <TextareaField
-              label="Pricing model"
-              value={draft.pricing_model}
-              rows={3}
-              onChange={(value) => onChange({ ...draft, pricing_model: value })}
-            />
-            <TextareaField
-              label="Feature clusters"
-              hint="One item per line"
-              value={draft.feature_clusters}
-              rows={4}
-              onChange={(value) => onChange({ ...draft, feature_clusters: value })}
-            />
-            <TextareaField
-              label="Monetization hypothesis"
-              value={draft.monetization_hypothesis}
-              rows={4}
-              onChange={(value) => onChange({ ...draft, monetization_hypothesis: value })}
-            />
-            <TextareaField
-              label="Target customer signals"
-              hint="One item per line"
-              value={draft.target_customer_signals}
-              rows={4}
-              onChange={(value) => onChange({ ...draft, target_customer_signals: value })}
-            />
-            <TextareaField
-              label="Warnings"
-              hint="One item per line"
-              value={draft.warnings}
-              rows={3}
-              onChange={(value) => onChange({ ...draft, warnings: value })}
-            />
-          </div>
-          <div className="mt-6 flex flex-wrap items-center justify-end gap-3">
-            <button type="button" onClick={onCancelEdit} className={secondaryButtonClass}>
-              Cancel
-            </button>
-            <button type="button" onClick={onSave} disabled={isSaving} className={primaryButtonClass}>
-              {isSaving ? "Saving..." : "Save changes"}
-            </button>
-          </div>
-        </section>
-      ) : (
-        <ProductSummaryPanel data={data} />
-      )}
-
-      <div className="flex justify-end">
-        <button type="button" onClick={onProceed} disabled={isProceeding} className={primaryButtonClass}>
-          {isProceeding ? "Generating..." : "Proceed to generate ICP profiles"}
-        </button>
-      </div>
+      <ProductSummaryPanel data={data} />
+      <ProductUnderstandingActionsBar isProceeding={isProceeding} onEdit={onStartEdit} onProceed={onProceed} />
     </div>
   );
 }
@@ -1231,6 +1188,204 @@ function NumberField({
   );
 }
 
+function ProductUnderstandingEditSheet({
+  data,
+  draft,
+  isSaving,
+  onClose,
+  onChange,
+  onSave,
+}: {
+  data: NonNullable<AnalysisDetail["extracted_product_data"]>;
+  draft: ProductDraft;
+  isSaving: boolean;
+  onClose: () => void;
+  onChange: (draft: ProductDraft) => void;
+  onSave: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end">
+      <button type="button" aria-label="Close product understanding editor" className="absolute inset-0 bg-slate-950/25" onClick={onClose} />
+      <aside
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="product-understanding-editor-title"
+        className="relative z-10 flex h-full w-full max-w-3xl flex-col border-l border-slate-200 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.18)]"
+      >
+        <div className="border-b border-slate-200 px-6 py-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Edit key assumptions</p>
+              <h2 id="product-understanding-editor-title" className="mt-2 text-2xl font-semibold text-slate-950">
+                {data.view_model.product_name}
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                Adjust the assumptions that most affect ICP generation and scenario quality. The rest of the interpretation stays intact.
+              </p>
+            </div>
+            <button type="button" onClick={onClose} className={secondaryButtonClass}>
+              Close
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 space-y-8 overflow-y-auto px-6 py-6">
+          <section className="space-y-4">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Snapshot</p>
+              <h3 className="mt-1 text-lg font-semibold text-slate-950">What business are we modeling?</h3>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <TextField label="Company name" value={draft.company_name} onChange={(value) => onChange({ ...draft, company_name: value })} />
+              <TextField label="Product name" value={draft.product_name} onChange={(value) => onChange({ ...draft, product_name: value })} />
+              <TextField label="Category" value={draft.category} onChange={(value) => onChange({ ...draft, category: value })} />
+              <TextField label="Subcategory" value={draft.subcategory} onChange={(value) => onChange({ ...draft, subcategory: value })} />
+              <TextField label="Buyer type" value={draft.buyer_type} onChange={(value) => onChange({ ...draft, buyer_type: value })} />
+            </div>
+            <TextareaField
+              label="Summary line"
+              value={draft.summary_line}
+              rows={4}
+              onChange={(value) => onChange({ ...draft, summary_line: value })}
+            />
+          </section>
+
+          <section className="space-y-4">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Monetization</p>
+              <h3 className="mt-1 text-lg font-semibold text-slate-950">How is this likely sold?</h3>
+            </div>
+            <div className="grid gap-4 md:grid-cols-3">
+              <TextField
+                label="Pricing visibility"
+                value={draft.pricing_visibility}
+                onChange={(value) => onChange({ ...draft, pricing_visibility: value, business_model_signals: updateSignalValue(draft.business_model_signals, "pricing_visibility", value) })}
+              />
+              <TextField
+                label="Sales motion"
+                value={draft.sales_motion}
+                onChange={(value) => onChange({ ...draft, sales_motion: value, business_model_signals: updateSignalValue(draft.business_model_signals, "sales_motion", value) })}
+              />
+            </div>
+            <TextareaField
+              label="Pricing model"
+              value={draft.pricing_model}
+              rows={3}
+              onChange={(value) => onChange({ ...draft, pricing_model: value })}
+            />
+            <TextareaField
+              label="Monetization hypothesis"
+              value={draft.monetization_hypothesis}
+              rows={4}
+              onChange={(value) => onChange({ ...draft, monetization_hypothesis: value })}
+            />
+          </section>
+
+          <section className="space-y-4">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Buying logic</p>
+              <h3 className="mt-1 text-lg font-semibold text-slate-950">Why does this get bought or rejected?</h3>
+            </div>
+            <TextareaField label="Core job-to-be-done" value={draft.core_job_to_be_done} rows={3} onChange={(value) => onChange({ ...draft, core_job_to_be_done: value })} />
+            <div className="grid gap-4 md:grid-cols-3">
+              <TextareaField label="Why they buy" hint="One item per line" value={draft.why_they_buy} rows={5} onChange={(value) => onChange({ ...draft, why_they_buy: value })} />
+              <TextareaField label="Why they hesitate" hint="One item per line" value={draft.why_they_hesitate} rows={5} onChange={(value) => onChange({ ...draft, why_they_hesitate: value })} />
+              <TextareaField label="What it replaces" hint="One item per line" value={draft.what_it_replaces} rows={5} onChange={(value) => onChange({ ...draft, what_it_replaces: value })} />
+            </div>
+          </section>
+
+          <section className="space-y-4">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Signal tuning</p>
+              <h3 className="mt-1 text-lg font-semibold text-slate-950">Which assumptions most affect the next stages?</h3>
+            </div>
+            <div className="space-y-4">
+              {draft.business_model_signals.map((signal) => (
+                <div key={signal.key} className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_160px]">
+                    <TextField
+                      label={signal.label}
+                      value={signal.value}
+                      onChange={(value) => onChange({ ...draft, business_model_signals: updateSignalValue(draft.business_model_signals, signal.key, value) })}
+                    />
+                    {signal.score_1_to_5 ? (
+                      <NumberField
+                        label="Signal score"
+                        hint="1 low to 5 high"
+                        value={signal.score_1_to_5}
+                        min={1}
+                        max={5}
+                        step={1}
+                        onChange={(value) => onChange({ ...draft, business_model_signals: updateSignalScore(draft.business_model_signals, signal.key, value) })}
+                      />
+                    ) : (
+                      <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-500">
+                        Confidence {Math.round(signal.confidence * 100)}%
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="space-y-4">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Feature and levers</p>
+              <h3 className="mt-1 text-lg font-semibold text-slate-950">What variables should simulation care about?</h3>
+            </div>
+            <TextareaField
+              label="Feature clusters"
+              hint="One feature cluster per line"
+              value={draft.feature_clusters}
+              rows={5}
+              onChange={(value) => onChange({ ...draft, feature_clusters: value })}
+            />
+            <div className="space-y-4">
+              {draft.simulation_levers.map((lever, index) => (
+                <div key={lever.key} className="rounded-3xl border border-slate-200 bg-white p-4">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <TextField
+                      label={`Lever ${index + 1} label`}
+                      value={lever.label}
+                      onChange={(value) => onChange({ ...draft, simulation_levers: updateLeverField(draft.simulation_levers, lever.key, "label", value) })}
+                    />
+                    <label className="space-y-2 text-sm">
+                      <span className="font-medium text-slate-700">Confidence</span>
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                        {Math.round(lever.confidence * 100)}%
+                      </div>
+                    </label>
+                  </div>
+                  <div className="mt-4">
+                    <TextareaField
+                      label="Why it matters"
+                      value={lever.why_it_matters}
+                      rows={3}
+                      onChange={(value) => onChange({ ...draft, simulation_levers: updateLeverField(draft.simulation_levers, lever.key, "why_it_matters", value) })}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
+
+        <div className="border-t border-slate-200 px-6 py-5">
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            <button type="button" onClick={onClose} className={secondaryButtonClass}>
+              Cancel
+            </button>
+            <button type="button" onClick={onSave} disabled={isSaving} className={primaryButtonClass}>
+              {isSaving ? "Saving..." : "Save assumptions"}
+            </button>
+          </div>
+        </div>
+      </aside>
+    </div>
+  );
+}
+
 function ICPEditSheet({
   icp,
   draft,
@@ -1556,18 +1711,73 @@ function DotScalePicker({
 }
 
 function createProductDraft(data: NonNullable<AnalysisDetail["extracted_product_data"]>): ProductDraft {
+  const { view_model: viewModel } = data;
   return {
     company_name: data.company_name,
     product_name: data.product_name,
+    summary_line: viewModel.summary_line,
     category: data.category,
     subcategory: data.subcategory,
-    positioning_summary: data.positioning_summary,
-    pricing_model: data.pricing_model,
-    feature_clusters: data.normalized_json.feature_clusters.join("\n"),
-    monetization_hypothesis: data.monetization_hypothesis,
-    target_customer_signals: data.normalized_json.target_customer_signals.join("\n"),
-    warnings: (data.normalized_json.warnings ?? []).join("\n"),
+    buyer_type: viewModel.business_model_signals.find((signal) => signal.key === "buyer_type")?.value ?? "",
+    pricing_visibility: viewModel.monetization_model.pricing_visibility,
+    sales_motion: viewModel.monetization_model.sales_motion,
+    pricing_model: viewModel.monetization_model.pricing_model,
+    business_model_signals: viewModel.business_model_signals.map((signal) => ({ ...signal })),
+    feature_clusters: viewModel.feature_clusters.map((cluster) => cluster.label).join("\n"),
+    monetization_hypothesis: viewModel.monetization_model.monetization_hypothesis,
+    core_job_to_be_done: viewModel.customer_logic.core_job_to_be_done,
+    why_they_buy: viewModel.customer_logic.why_they_buy.join("\n"),
+    why_they_hesitate: viewModel.customer_logic.why_they_hesitate.join("\n"),
+    what_it_replaces: viewModel.customer_logic.what_it_replaces.join("\n"),
+    simulation_levers: viewModel.simulation_levers.map((lever) => ({ ...lever })),
+    uncertainties: viewModel.uncertainties.map((item) => ({ ...item })),
   };
+}
+
+function updateSignalValue(signals: ProductBusinessSignal[], key: string, value: string) {
+  return signals.map((signal) => (signal.key === key ? { ...signal, value } : signal));
+}
+
+function updateSignalScore(signals: ProductBusinessSignal[], key: string, score: number) {
+  const normalized = Math.max(1, Math.min(5, Math.round(score))) as 1 | 2 | 3 | 4 | 5;
+  return signals.map((signal) => (signal.key === key ? { ...signal, score_1_to_5: normalized } : signal));
+}
+
+function updateLeverField(
+  levers: ProductSimulationLever[],
+  key: string,
+  field: "label" | "why_it_matters",
+  value: string,
+) {
+  return levers.map((lever) => (lever.key === key ? { ...lever, [field]: value } : lever));
+}
+
+function buildProductSignalPayload(draft: ProductDraft) {
+  return draft.business_model_signals.map((signal) => {
+    if (signal.key === "buyer_type") {
+      return { ...signal, value: draft.buyer_type };
+    }
+    if (signal.key === "sales_motion") {
+      return { ...signal, value: draft.sales_motion };
+    }
+    if (signal.key === "pricing_visibility") {
+      return { ...signal, value: draft.pricing_visibility };
+    }
+    return signal;
+  });
+}
+
+function buildFeatureClusterPayload(draft: ProductDraft): ProductFeatureCluster[] {
+  const source = draft.feature_clusters
+    .split("\n")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return source.map((label, index) => ({
+    key: label.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+    label,
+    importance: index < 2 ? "high" : index < 4 ? "medium" : "low",
+    description: null,
+  }));
 }
 
 function createIcpDraft(icp: ICPProfile): IcpDraft {

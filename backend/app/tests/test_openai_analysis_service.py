@@ -11,35 +11,56 @@ from app.services.llm.openai_analysis_service import (
     GeneratedICPResponse,
     GeneratedScenarioResponse,
     OpenAIAnalysisService,
+    ProductCustomerLogicResponse,
+    ProductFeatureClusterResponse,
     ProductUnderstandingResponse,
     ScenarioInputParametersResponse,
 )
 from app.tests.factories import sample_scrape_result
 
 
-def test_normalize_product_understanding_builds_normalized_payload() -> None:
-    service = OpenAIAnalysisService()
+def sample_product_payload(**overrides) -> ProductUnderstandingResponse:
     payload = ProductUnderstandingResponse(
         company_name="Acme",
         product_name="Acme Growth Platform",
+        summary_line="Acme helps revenue teams automate onboarding and renewal workflows.",
         category="B2B Software",
         subcategory="Revenue Operations",
-        positioning_summary="Acme helps revenue teams automate onboarding and renewal workflows.",
+        buyer_type="Revenue and customer success teams",
+        sales_motion="Demo-led / enterprise sales",
         pricing_model="sales_led_custom_pricing",
-        feature_clusters=["workflow automation", "renewal analytics", "workflow automation"],
         monetization_hypothesis="Annual contracts from revenue teams.",
-        target_customer_signals=["revenue teams", "customer success leaders"],
+        customer_logic=ProductCustomerLogicResponse(
+            core_job_to_be_done="Automate onboarding and renewal workflows.",
+            why_they_buy=["Reduce manual work", "Improve renewal visibility"],
+            why_they_hesitate=["Implementation complexity", "Pricing is not fully visible"],
+            what_it_replaces=["spreadsheets", "point tools"],
+        ),
+        feature_clusters=[
+            ProductFeatureClusterResponse(label="workflow automation", importance="high", description="Automates lifecycle work."),
+            ProductFeatureClusterResponse(label="renewal analytics", importance="high", description="Tracks renewal health."),
+            ProductFeatureClusterResponse(label="workflow automation", importance="medium", description="Duplicate for dedupe checks."),
+        ],
         confidence_score=0.88,
         confidence_scores=ConfidenceScoresResponse(
             company_name=0.9,
+            summary_line=0.88,
             category=0.84,
+            buyer_type=0.87,
+            customer_logic=0.83,
             pricing_model=0.88,
+            monetization_model=0.86,
             feature_clusters=0.88,
-            target_customer_signals=0.88,
-            positioning_summary=0.88,
+            business_model_signals=0.8,
+            simulation_levers=0.78,
         ),
-        warnings=["Public pricing is limited."],
     )
+    return payload.model_copy(update=overrides)
+
+
+def test_normalize_product_understanding_builds_normalized_payload() -> None:
+    service = OpenAIAnalysisService()
+    payload = sample_product_payload()
 
     understanding = service._normalize_product_understanding(payload, sample_scrape_result())
 
@@ -47,11 +68,14 @@ def test_normalize_product_understanding_builds_normalized_payload() -> None:
     assert understanding.normalized_json["company_name"] == "Acme"
     assert understanding.feature_clusters == ["workflow automation", "renewal analytics"]
     assert understanding.confidence_scores["pricing_model"] == pytest.approx(0.88)
+    assert understanding.business_model_signals[0].key == "buyer_type"
+    assert understanding.simulation_levers
+    assert understanding.review_status == "needs_review"
 
 
 def test_normalize_product_understanding_preserves_full_editable_text_fields() -> None:
     service = OpenAIAnalysisService()
-    long_positioning_summary = (
+    long_summary_line = (
         "Acme helps revenue teams automate onboarding, expansion, and lifecycle orchestration across product, sales, "
         "and customer success with a unified workspace that connects health signals, playbooks, approvals, "
         "stakeholder collaboration, and revenue-risk insights without forcing teams into separate point solutions."
@@ -60,31 +84,11 @@ def test_normalize_product_understanding_preserves_full_editable_text_fields() -
         "Likely SaaS subscription with a free entry option, annual volume discounts, optional premium support, "
         "and custom enterprise pricing for larger rollouts."
     )
-    payload = ProductUnderstandingResponse(
-        company_name="Acme",
-        product_name="Acme Growth Platform",
-        category="B2B Software",
-        subcategory="Revenue Operations",
-        positioning_summary=long_positioning_summary,
-        pricing_model=long_pricing_model,
-        feature_clusters=["workflow automation", "renewal analytics"],
-        monetization_hypothesis="Annual contracts from revenue teams.",
-        target_customer_signals=["revenue teams", "customer success leaders"],
-        confidence_score=0.88,
-        confidence_scores=ConfidenceScoresResponse(
-            company_name=0.9,
-            category=0.84,
-            pricing_model=0.88,
-            feature_clusters=0.88,
-            target_customer_signals=0.88,
-            positioning_summary=0.88,
-        ),
-        warnings=[],
-    )
+    payload = sample_product_payload(summary_line=long_summary_line, pricing_model=long_pricing_model)
 
     understanding = service._normalize_product_understanding(payload, sample_scrape_result())
 
-    assert understanding.positioning_summary == long_positioning_summary
+    assert understanding.positioning_summary == long_summary_line
     assert understanding.pricing_model == long_pricing_model
     assert not understanding.positioning_summary.endswith("...")
     assert not understanding.pricing_model.endswith("...")
@@ -93,30 +97,10 @@ def test_normalize_product_understanding_preserves_full_editable_text_fields() -
 def test_normalize_product_understanding_update_preserves_full_editable_text_fields() -> None:
     service = OpenAIAnalysisService()
     existing = service._normalize_product_understanding(
-        ProductUnderstandingResponse(
-            company_name="Acme",
-            product_name="Acme Growth Platform",
-            category="B2B Software",
-            subcategory="Revenue Operations",
-            positioning_summary="Short summary",
-            pricing_model="sales_led_custom_pricing",
-            feature_clusters=["workflow automation", "renewal analytics"],
-            monetization_hypothesis="Annual contracts from revenue teams.",
-            target_customer_signals=["revenue teams", "customer success leaders"],
-            confidence_score=0.88,
-            confidence_scores=ConfidenceScoresResponse(
-                company_name=0.9,
-                category=0.84,
-                pricing_model=0.88,
-                feature_clusters=0.88,
-                target_customer_signals=0.88,
-                positioning_summary=0.88,
-            ),
-            warnings=[],
-        ),
+        sample_product_payload(summary_line="Short summary"),
         sample_scrape_result(),
     )
-    updated_positioning_summary = (
+    updated_summary_line = (
         "Acme now positions itself as an end-to-end operating system for revenue execution, giving customer success, "
         "sales, and finance a shared workflow for lifecycle planning, renewal forecasting, account interventions, "
         "and expansion playbooks from one coordinated system."
@@ -130,19 +114,26 @@ def test_normalize_product_understanding_update_preserves_full_editable_text_fie
         ProductUnderstandingUpdateRequest(
             company_name="Acme",
             product_name="Acme Growth Platform",
+            summary_line=updated_summary_line,
             category="B2B Software",
             subcategory="Revenue Operations",
-            positioning_summary=updated_positioning_summary,
-            pricing_model=updated_pricing_model,
-            feature_clusters=["workflow automation", "renewal analytics"],
-            monetization_hypothesis="Annual contracts from revenue teams.",
-            target_customer_signals=["revenue teams", "customer success leaders"],
-            warnings=[],
+            buyer_type="Revenue and customer success teams",
+            business_model_signals=[item.model_dump() for item in existing.business_model_signals],
+            customer_logic=existing.customer_logic.model_dump(),
+            monetization_model={
+                "pricing_visibility": "medium",
+                "pricing_model": updated_pricing_model,
+                "monetization_hypothesis": "Annual contracts from revenue teams.",
+                "sales_motion": "Demo-led / enterprise sales",
+            },
+            feature_clusters=[item.model_dump() for item in existing.feature_cluster_details],
+            simulation_levers=[item.model_dump() for item in existing.simulation_levers],
+            uncertainties=[item.model_dump() for item in existing.uncertainties],
         ),
         existing=existing,
     )
 
-    assert understanding.positioning_summary == updated_positioning_summary
+    assert understanding.positioning_summary == updated_summary_line
     assert understanding.pricing_model == updated_pricing_model
     assert not understanding.positioning_summary.endswith("...")
     assert not understanding.pricing_model.endswith("...")
@@ -347,7 +338,11 @@ def test_openai_response_schemas_avoid_dynamic_object_maps() -> None:
 
     product_schema = to_strict_json_schema(ProductUnderstandingResponse)
     confidence_schema = product_schema["$defs"]["ConfidenceScoresResponse"]
+    customer_logic_schema = product_schema["$defs"]["ProductCustomerLogicResponse"]
+    feature_cluster_schema = product_schema["$defs"]["ProductFeatureClusterResponse"]
     assert confidence_schema["additionalProperties"] is False
+    assert customer_logic_schema["additionalProperties"] is False
+    assert feature_cluster_schema["additionalProperties"] is False
 
     artifact_schema = to_strict_json_schema(AnalysisArtifactsResponse)
     icp_schema = artifact_schema["$defs"]["GeneratedICPResponse"]
@@ -372,27 +367,7 @@ async def test_call_with_retry_retries_on_parse_validation_error() -> None:
             if self.calls == 1:
                 ProductUnderstandingResponse.model_validate_json('{"company_name"')
 
-            payload = ProductUnderstandingResponse(
-                company_name="Acme",
-                product_name="Acme Growth Platform",
-                category="B2B Software",
-                subcategory="Revenue Operations",
-                positioning_summary="Acme helps revenue teams automate onboarding and renewal workflows.",
-                pricing_model="sales_led_custom_pricing",
-                feature_clusters=["workflow automation", "renewal analytics"],
-                monetization_hypothesis="Annual contracts from revenue teams.",
-                target_customer_signals=["revenue teams", "customer success leaders"],
-                confidence_score=0.88,
-                confidence_scores=ConfidenceScoresResponse(
-                    company_name=0.9,
-                    category=0.84,
-                    pricing_model=0.88,
-                    feature_clusters=0.88,
-                    target_customer_signals=0.88,
-                    positioning_summary=0.88,
-                ),
-                warnings=[],
-            )
+            payload = sample_product_payload()
             return SimpleNamespace(output_parsed=payload)
 
     class FakeClient:

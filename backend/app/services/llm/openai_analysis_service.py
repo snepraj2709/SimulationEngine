@@ -14,6 +14,7 @@ from app.models.scenario import ScenarioType
 from app.schemas.product import ProductUnderstandingUpdateRequest
 from app.schemas.simulation import ICPProfileUpdateRequest, ScenarioUpdateRequest
 from app.services.domain_types import GeneratedICP, GeneratedScenario, ProductUnderstanding, ScrapeResult
+from app.services.product_understanding_service import ProductUnderstandingService
 from app.utils.text import dedupe_preserve_order, normalize_text, truncate_text
 
 logger = get_logger(__name__)
@@ -60,12 +61,33 @@ ALLOWED_DECISION_DRIVERS: tuple[str, ...] = (
 
 _DEFAULT_CONFIDENCE_KEYS: tuple[str, ...] = (
     "company_name",
+    "summary_line",
     "category",
+    "buyer_type",
+    "customer_logic",
     "pricing_model",
+    "monetization_model",
     "feature_clusters",
-    "target_customer_signals",
-    "positioning_summary",
+    "business_model_signals",
+    "simulation_levers",
 )
+
+
+class ProductCustomerLogicResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    core_job_to_be_done: str
+    why_they_buy: list[str] = Field(min_length=2, max_length=5)
+    why_they_hesitate: list[str] = Field(min_length=1, max_length=5)
+    what_it_replaces: list[str] = Field(min_length=1, max_length=4)
+
+
+class ProductFeatureClusterResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    label: str
+    importance: Literal["high", "medium", "low"]
+    description: str | None = None
 
 
 class ProductUnderstandingResponse(BaseModel):
@@ -73,27 +95,32 @@ class ProductUnderstandingResponse(BaseModel):
 
     company_name: str
     product_name: str
+    summary_line: str
     category: str
     subcategory: str
-    positioning_summary: str
+    buyer_type: str
+    sales_motion: str
     pricing_model: str
-    feature_clusters: list[str] = Field(min_length=2, max_length=8)
     monetization_hypothesis: str
-    target_customer_signals: list[str] = Field(min_length=1, max_length=8)
+    customer_logic: ProductCustomerLogicResponse
+    feature_clusters: list[ProductFeatureClusterResponse] = Field(min_length=2, max_length=6)
     confidence_score: float = Field(ge=0, le=1)
     confidence_scores: "ConfidenceScoresResponse"
-    warnings: list[str] = Field(default_factory=list, max_length=6)
 
 
 class ConfidenceScoresResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     company_name: float = Field(ge=0, le=1)
+    summary_line: float = Field(ge=0, le=1)
     category: float = Field(ge=0, le=1)
+    buyer_type: float = Field(ge=0, le=1)
+    customer_logic: float = Field(ge=0, le=1)
     pricing_model: float = Field(ge=0, le=1)
+    monetization_model: float = Field(ge=0, le=1)
     feature_clusters: float = Field(ge=0, le=1)
-    target_customer_signals: float = Field(ge=0, le=1)
-    positioning_summary: float = Field(ge=0, le=1)
+    business_model_signals: float = Field(ge=0, le=1)
+    simulation_levers: float = Field(ge=0, le=1)
 
 
 class DriverWeightResponse(BaseModel):
@@ -329,11 +356,12 @@ class OpenAIAnalysisService:
 
     def _stage_one_instructions(self) -> str:
         return (
-            "You analyze a scraped product or company webpage and return a structured product understanding. "
+            "You analyze a scraped product or company webpage and return a structured business interpretation for downstream ICP generation and simulation. "
             "Use only the provided scrape payload. Do not assume facts from brand familiarity that are not supported by the input. "
-            "If the evidence is thin, reflect that in warnings and lower confidence. "
             "Choose specific category and subcategory labels that match the page. "
-            "Return concise, business-usable feature clusters and target customer signals for the supplied URL."
+            "Return a crisp one-line product summary, the most likely buyer type, customer buying logic, monetization clues, and concise feature clusters. "
+            "Keep outputs compact and business-usable rather than descriptive or promotional. "
+            "If evidence is thin, lower confidence instead of inventing certainty."
         )
 
     def _stage_two_input(self, understanding: ProductUnderstanding) -> list[dict[str, str]]:
@@ -356,6 +384,7 @@ class OpenAIAnalysisService:
     def _stage_two_instructions(self) -> str:
         return (
             "Generate structured ICP profiles for the supplied product understanding. "
+            "Use the buyer type, customer logic, monetization model, business signals, simulation levers, and uncertainties to make the ICPs specific. "
             "Return 3 to 5 ICPs. "
             "All ICP decision drivers must come only from the allowed decision driver vocabulary. "
             "Give each ICP a coherent weight distribution and segment weight, but do not worry about exact normalization because the application will normalize numeric fields."
@@ -379,6 +408,7 @@ class OpenAIAnalysisService:
     def _stage_three_instructions(self) -> str:
         return (
             "Generate exactly 3 structured scenario suggestions for the supplied product understanding and reviewed ICPs. "
+            "Use the simulation levers, monetization model, switching friction, deployment complexity, and buying logic to keep the scenarios grounded. "
             "All scenario types must come only from the allowed scenario types. "
             "Make the scenarios realistic for the provided product and avoid any Netflix-specific assumptions unless the input explicitly supports them. "
             "Return the scenario title, type, concise description, and typed input parameters only."
@@ -389,9 +419,7 @@ class OpenAIAnalysisService:
         payload: ProductUnderstandingResponse,
         scrape_result: ScrapeResult,
     ) -> ProductUnderstanding:
-        feature_clusters = self._normalize_string_list(payload.feature_clusters, limit=6)
-        target_customer_signals = self._normalize_string_list(payload.target_customer_signals, limit=6)
-        warnings = self._normalize_string_list(payload.warnings, limit=6)
+        feature_cluster_details = self._normalize_feature_clusters(payload.feature_clusters)
         confidence_scores = {
             key: self._clamp(getattr(payload.confidence_scores, key, payload.confidence_score), 0.0, 1.0)
             for key in _DEFAULT_CONFIDENCE_KEYS
@@ -402,25 +430,40 @@ class OpenAIAnalysisService:
             product_name=truncate_text(payload.product_name.strip() or payload.company_name.strip() or "Unknown Product", 120),
             category=truncate_text(payload.category.strip() or "Unknown", 120),
             subcategory=truncate_text(payload.subcategory.strip() or "General Product Website", 120),
-            positioning_summary=normalize_text(payload.positioning_summary.strip() or scrape_result.meta_description or scrape_result.title),
+            positioning_summary=normalize_text(payload.summary_line.strip() or scrape_result.meta_description or scrape_result.title),
             pricing_model=normalize_text(payload.pricing_model.strip() or "usage_or_custom"),
-            feature_clusters=feature_clusters or ["core product workflow", "customer value delivery"],
+            feature_clusters=[item["label"] for item in feature_cluster_details] or ["core product workflow", "customer value delivery"],
             monetization_hypothesis=truncate_text(payload.monetization_hypothesis.strip() or "Monetization requires further validation from the public page.", 220),
-            target_customer_signals=target_customer_signals or ["general product evaluators"],
+            target_customer_signals=[truncate_text(payload.buyer_type.strip(), 120)] if payload.buyer_type.strip() else ["general product evaluators"],
             confidence_score=self._clamp(payload.confidence_score, 0.0, 1.0),
             confidence_scores=confidence_scores,
-            warnings=warnings,
+            warnings=[],
             raw_extracted_json={
                 **scrape_result.raw_extracted_json,
                 "llm_analysis": {
-                    "feature_clusters": feature_clusters,
-                    "target_customer_signals": target_customer_signals,
-                    "warnings": warnings,
+                    "summary_line": payload.summary_line,
+                    "buyer_type": payload.buyer_type,
+                    "sales_motion": payload.sales_motion,
+                    "customer_logic": payload.customer_logic.model_dump(),
+                    "feature_clusters": feature_cluster_details,
                 },
             },
+            summary_line=truncate_text(payload.summary_line.strip() or scrape_result.meta_description or scrape_result.title, 180),
+            buyer_type=truncate_text(payload.buyer_type.strip() or "General product evaluators", 120),
+            sales_motion=truncate_text(payload.sales_motion.strip() or "", 120),
+            customer_logic=payload.customer_logic.model_dump(),
+            monetization_model={
+                "pricing_visibility": "",
+                "pricing_model": normalize_text(payload.pricing_model.strip() or "usage_or_custom"),
+                "monetization_hypothesis": truncate_text(
+                    payload.monetization_hypothesis.strip() or "Monetization requires further validation from the public page.",
+                    220,
+                ),
+                "sales_motion": truncate_text(payload.sales_motion.strip() or "", 120),
+            },
+            feature_cluster_details=feature_cluster_details,
         )
-        understanding.normalized_json = understanding.model_dump()
-        return understanding
+        return ProductUnderstandingService().finalize(understanding, scrape_result=scrape_result)
 
     def _normalize_analysis_artifacts(
         self,
@@ -453,28 +496,39 @@ class OpenAIAnalysisService:
         *,
         existing: ProductUnderstanding,
     ) -> ProductUnderstanding:
+        feature_cluster_details = self._normalize_feature_clusters(payload.feature_clusters)
         understanding = ProductUnderstanding(
             company_name=truncate_text(payload.company_name.strip() or existing.company_name, 120),
             product_name=truncate_text(payload.product_name.strip() or existing.product_name, 120),
             category=truncate_text(payload.category.strip() or existing.category, 120),
             subcategory=truncate_text(payload.subcategory.strip() or existing.subcategory, 120),
-            positioning_summary=normalize_text(payload.positioning_summary.strip() or existing.positioning_summary),
-            pricing_model=normalize_text(payload.pricing_model.strip() or existing.pricing_model),
-            feature_clusters=self._normalize_string_list(payload.feature_clusters, limit=6)
-            or existing.feature_clusters,
+            positioning_summary=normalize_text(payload.summary_line.strip() or existing.positioning_summary),
+            pricing_model=normalize_text(payload.monetization_model.pricing_model.strip() or existing.pricing_model),
+            feature_clusters=[item["label"] for item in feature_cluster_details] or existing.feature_clusters,
             monetization_hypothesis=truncate_text(
-                payload.monetization_hypothesis.strip() or existing.monetization_hypothesis,
+                payload.monetization_model.monetization_hypothesis.strip() or existing.monetization_hypothesis,
                 220,
             ),
-            target_customer_signals=self._normalize_string_list(payload.target_customer_signals, limit=6)
-            or existing.target_customer_signals,
+            target_customer_signals=[truncate_text(payload.buyer_type.strip(), 120)] if payload.buyer_type.strip() else existing.target_customer_signals,
             confidence_score=existing.confidence_score,
             confidence_scores=dict(existing.confidence_scores),
-            warnings=self._normalize_string_list(payload.warnings, limit=6),
+            warnings=[item.reason for item in payload.uncertainties[:6]],
             raw_extracted_json=dict(existing.raw_extracted_json),
+            summary_line=truncate_text(payload.summary_line.strip() or existing.summary_line or existing.positioning_summary, 180),
+            buyer_type=truncate_text(payload.buyer_type.strip() or existing.buyer_type, 120),
+            sales_motion=truncate_text(
+                payload.monetization_model.sales_motion.strip() or existing.sales_motion or existing.monetization_model.sales_motion,
+                120,
+            ),
+            business_model_signals=[item.model_dump() for item in payload.business_model_signals],
+            customer_logic=payload.customer_logic.model_dump(),
+            monetization_model=payload.monetization_model.model_dump(),
+            feature_cluster_details=feature_cluster_details,
+            simulation_levers=[item.model_dump() for item in payload.simulation_levers],
+            uncertainties=[item.model_dump() for item in payload.uncertainties],
+            source_coverage=existing.source_coverage.model_dump(),
         )
-        understanding.normalized_json = understanding.model_dump()
-        return understanding
+        return ProductUnderstandingService().finalize(understanding)
 
     def normalize_icp_update(self, payload: ICPProfileUpdateRequest) -> GeneratedICP:
         decision_drivers = self._normalize_string_list(payload.decision_drivers, limit=6)
@@ -673,6 +727,27 @@ class OpenAIAnalysisService:
     def _normalize_string_list(self, values: list[str], *, limit: int) -> list[str]:
         cleaned = [truncate_text(str(value).strip(), 160) for value in values if str(value).strip()]
         return dedupe_preserve_order(cleaned)[:limit]
+
+    def _normalize_feature_clusters(self, values: list[ProductFeatureClusterResponse], *, limit: int = 6) -> list[dict[str, str]]:
+        normalized: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for item in values:
+            label = truncate_text(item.label.strip(), 60)
+            if not label:
+                continue
+            lowered = label.lower()
+            if lowered in seen:
+                continue
+            seen.add(lowered)
+            normalized.append(
+                {
+                    "key": normalize_text(label).lower().replace(" ", "-"),
+                    "label": label,
+                    "importance": item.importance,
+                    "description": truncate_text(item.description.strip(), 140) if item.description and item.description.strip() else None,
+                }
+            )
+        return normalized[:limit]
 
     def _required_float(self, values: dict[str, Any], key: str, *, minimum: float, maximum: float) -> float:
         if key not in values:

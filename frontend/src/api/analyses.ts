@@ -5,6 +5,12 @@ import {
   AnalysisListItem,
   FeedbackEvent,
   FeedbackPayload,
+  ProductBusinessSignal,
+  ProductCustomerLogic,
+  ProductFeatureCluster,
+  ProductMonetizationModel,
+  ProductSimulationLever,
+  ProductUncertainty,
   SimulationRun,
   WorkflowStage,
 } from "@/types/api";
@@ -40,14 +46,16 @@ export function updateProductUnderstanding(
   payload: {
     company_name: string;
     product_name: string;
+    summary_line: string;
     category: string;
     subcategory: string;
-    positioning_summary: string;
-    pricing_model: string;
-    feature_clusters: string[];
-    monetization_hypothesis: string;
-    target_customer_signals: string[];
-    warnings?: string[];
+    buyer_type: string;
+    business_model_signals: ProductBusinessSignal[];
+    customer_logic: ProductCustomerLogic;
+    monetization_model: ProductMonetizationModel;
+    feature_clusters: ProductFeatureCluster[];
+    simulation_levers: ProductSimulationLever[];
+    uncertainties: ProductUncertainty[];
   },
 ) {
   return apiRequest<AnalysisDetail>(`/analyses/${analysisId}/product-understanding`, {

@@ -13,7 +13,7 @@ from app.schemas.analysis import (
     AnalysisWorkflowResponse,
     WorkflowStepResponse,
 )
-from app.schemas.product import ExtractedProductDataResponse
+from app.schemas.product import ExtractedProductDataResponse, ProductUnderstandingViewModelResponse
 from app.schemas.simulation import (
     ICPProfileResponse,
     ScenarioResponse,
@@ -82,7 +82,7 @@ def build_analysis_detail_response(analysis: Analysis) -> AnalysisDetailResponse
         created_at=analysis.created_at,
         updated_at=analysis.updated_at,
         workflow=build_analysis_workflow_response(analysis, current_stage=current_stage),
-        extracted_product_data=ExtractedProductDataResponse.model_validate(analysis.extracted_product_data)
+        extracted_product_data=build_extracted_product_data_response(analysis.extracted_product_data, understanding=understanding)
         if analysis.extracted_product_data
         else None,
         icp_profiles=[
@@ -94,6 +94,46 @@ def build_analysis_detail_response(analysis: Analysis) -> AnalysisDetailResponse
             for scenario in sorted(analysis.scenarios, key=_ordered_entity_key)
         ],
         simulation_runs=[build_simulation_run_response(run, analysis) for run in analysis.simulation_runs],
+    )
+
+
+def build_extracted_product_data_response(product, *, understanding) -> ExtractedProductDataResponse:
+    assert understanding is not None
+    view_model = ProductUnderstandingViewModelResponse.model_validate(
+        {
+            "id": product.id,
+            "company_name": understanding.company_name,
+            "product_name": understanding.product_name,
+            "summary_line": understanding.summary_line or understanding.positioning_summary,
+            "category": understanding.category,
+            "subcategory": understanding.subcategory,
+            "confidence": understanding.confidence_score,
+            "review_status": understanding.review_status,
+            "business_model_signals": [signal.model_dump() for signal in understanding.business_model_signals],
+            "customer_logic": understanding.customer_logic.model_dump(),
+            "monetization_model": understanding.monetization_model.model_dump(),
+            "feature_clusters": [cluster.model_dump() for cluster in understanding.feature_cluster_details],
+            "simulation_levers": [lever.model_dump() for lever in understanding.simulation_levers],
+            "uncertainties": [item.model_dump() for item in understanding.uncertainties],
+            "source_coverage": understanding.source_coverage.model_dump(),
+        }
+    )
+    return ExtractedProductDataResponse(
+        id=product.id,
+        analysis_id=product.analysis_id,
+        company_name=product.company_name,
+        product_name=product.product_name,
+        category=product.category,
+        subcategory=product.subcategory,
+        positioning_summary=product.positioning_summary,
+        pricing_model=product.pricing_model,
+        monetization_hypothesis=product.monetization_hypothesis,
+        raw_extracted_json=dict(product.raw_extracted_json),
+        normalized_json=dict(product.normalized_json),
+        view_model=view_model,
+        confidence_score=product.confidence_score,
+        is_user_edited=product.is_user_edited,
+        edited_at=product.edited_at,
     )
 
 

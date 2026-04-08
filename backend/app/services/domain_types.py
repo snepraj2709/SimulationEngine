@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -17,6 +19,63 @@ class ScrapeResult(BaseModel):
     fetch_source: str = "network"
 
 
+ReviewStatus = Literal["ready", "needs_review"]
+FeatureImportance = Literal["high", "medium", "low"]
+UncertaintySeverity = Literal["high", "medium", "low"]
+
+
+class BusinessModelSignal(BaseModel):
+    key: str
+    label: str
+    value: str
+    score_1_to_5: int | None = Field(default=None, ge=1, le=5)
+    confidence: float = Field(default=0.5, ge=0, le=1)
+    editable: bool = True
+
+
+class CustomerLogic(BaseModel):
+    core_job_to_be_done: str = ""
+    why_they_buy: list[str] = Field(default_factory=list)
+    why_they_hesitate: list[str] = Field(default_factory=list)
+    what_it_replaces: list[str] = Field(default_factory=list)
+
+
+class MonetizationModel(BaseModel):
+    pricing_visibility: str = "low"
+    pricing_model: str = "usage_or_custom"
+    monetization_hypothesis: str = ""
+    sales_motion: str = ""
+
+
+class FeatureCluster(BaseModel):
+    key: str
+    label: str
+    importance: FeatureImportance = "medium"
+    description: str | None = None
+
+
+class SimulationLever(BaseModel):
+    key: str
+    label: str
+    why_it_matters: str
+    confidence: float = Field(default=0.5, ge=0, le=1)
+    editable: bool = True
+
+
+class UncertaintyItem(BaseModel):
+    key: str
+    label: str
+    reason: str
+    severity: UncertaintySeverity = "medium"
+    needs_user_review: bool = True
+
+
+class SourceCoverage(BaseModel):
+    fields_observed_explicitly: list[str] = Field(default_factory=list)
+    fields_inferred: list[str] = Field(default_factory=list)
+    fields_missing: list[str] = Field(default_factory=list)
+
+
 class ProductUnderstanding(BaseModel):
     company_name: str
     product_name: str
@@ -32,6 +91,17 @@ class ProductUnderstanding(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     raw_extracted_json: dict = Field(default_factory=dict)
     normalized_json: dict = Field(default_factory=dict)
+    summary_line: str = ""
+    buyer_type: str = ""
+    sales_motion: str = ""
+    review_status: ReviewStatus = "ready"
+    business_model_signals: list[BusinessModelSignal] = Field(default_factory=list)
+    customer_logic: CustomerLogic = Field(default_factory=CustomerLogic)
+    monetization_model: MonetizationModel = Field(default_factory=MonetizationModel)
+    feature_cluster_details: list[FeatureCluster] = Field(default_factory=list)
+    simulation_levers: list[SimulationLever] = Field(default_factory=list)
+    uncertainties: list[UncertaintyItem] = Field(default_factory=list)
+    source_coverage: SourceCoverage = Field(default_factory=SourceCoverage)
 
 
 class GeneratedICP(BaseModel):

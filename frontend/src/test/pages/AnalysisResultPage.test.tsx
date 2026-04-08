@@ -130,6 +130,78 @@ function buildIcpStageDetail(icps: ICPProfile[] = [buildIcpProfile()], overrides
   };
 }
 
+function buildProductUnderstandingData(
+  overrides: Partial<NonNullable<AnalysisDetail["extracted_product_data"]>> = {},
+): NonNullable<AnalysisDetail["extracted_product_data"]> {
+  return {
+    id: "product-1",
+    analysis_id: "analysis-1",
+    company_name: "Acme",
+    product_name: "Acme Growth Platform",
+    category: "B2B Software",
+    subcategory: "Revenue Operations",
+    positioning_summary: "Automates onboarding and revenue expansion workflows.",
+    pricing_model: "sales_led_custom_pricing",
+    monetization_hypothesis: "Annual contracts for revenue teams.",
+    raw_extracted_json: {},
+    normalized_json: {},
+    view_model: {
+      id: "product-1",
+      company_name: "Acme",
+      product_name: "Acme Growth Platform",
+      summary_line: "Automates onboarding and revenue expansion workflows.",
+      category: "B2B Software",
+      subcategory: "Revenue Operations",
+      confidence: 0.84,
+      review_status: "needs_review",
+      business_model_signals: [
+        { key: "buyer_type", label: "Buyer Type", value: "Revenue teams", score_1_to_5: null, confidence: 0.82, editable: true },
+        { key: "sales_motion", label: "Sales Motion", value: "Demo-led / enterprise sales", score_1_to_5: null, confidence: 0.81, editable: true },
+        { key: "pricing_visibility", label: "Pricing Visibility", value: "Medium", score_1_to_5: 3, confidence: 0.8, editable: true },
+        { key: "deployment_complexity", label: "Deployment Complexity", value: "High", score_1_to_5: 4, confidence: 0.78, editable: true },
+      ],
+      customer_logic: {
+        core_job_to_be_done: "Automate onboarding and revenue expansion workflows.",
+        why_they_buy: ["Reduce manual work", "Improve renewal visibility"],
+        why_they_hesitate: ["Implementation complexity", "Pricing is not fully visible"],
+        what_it_replaces: ["spreadsheets", "point tools"],
+      },
+      monetization_model: {
+        pricing_visibility: "medium",
+        pricing_model: "sales_led_custom_pricing",
+        monetization_hypothesis: "Annual contracts for revenue teams.",
+        sales_motion: "Demo-led / enterprise sales",
+      },
+      feature_clusters: [
+        { key: "workflow-automation", label: "workflow automation", importance: "high", description: "Automates lifecycle work." },
+        { key: "renewal-analytics", label: "renewal analytics", importance: "high", description: "Tracks renewal health." },
+      ],
+      simulation_levers: [
+        { key: "pricing", label: "Pricing", why_it_matters: "Pricing affects conversion and renewals.", confidence: 0.8, editable: true },
+        { key: "deployment_effort", label: "Deployment Effort", why_it_matters: "Rollout friction affects activation.", confidence: 0.76, editable: true },
+      ],
+      uncertainties: [
+        {
+          key: "pricing_visibility",
+          label: "Pricing visibility",
+          reason: "Public pricing is limited.",
+          severity: "high",
+          needs_user_review: true,
+        },
+      ],
+      source_coverage: {
+        fields_observed_explicitly: ["Company name", "Buyer audience"],
+        fields_inferred: ["Deployment complexity"],
+        fields_missing: ["Public pricing detail"],
+      },
+    },
+    confidence_score: 0.84,
+    is_user_edited: false,
+    edited_at: null,
+    ...overrides,
+  };
+}
+
 function expectInDocumentOrder(elements: HTMLElement[]) {
   elements.reduce((previous, current) => {
     expect(previous.compareDocumentPosition(current) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -238,35 +310,7 @@ describe("AnalysisResultPage", () => {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         workflow: buildWorkflow("product_understanding"),
-        extracted_product_data: {
-          id: "product-1",
-          analysis_id: "analysis-1",
-          company_name: "Acme",
-          product_name: "Acme Growth Platform",
-          category: "B2B Software",
-          subcategory: "Revenue Operations",
-          positioning_summary: "Automates onboarding and revenue expansion workflows.",
-          pricing_model: "sales_led_custom_pricing",
-          monetization_hypothesis: "Annual contracts for revenue teams.",
-          raw_extracted_json: {},
-          normalized_json: {
-            company_name: "Acme",
-            product_name: "Acme Growth Platform",
-            category: "B2B Software",
-            subcategory: "Revenue Operations",
-            positioning_summary: "Automates onboarding and revenue expansion workflows.",
-            pricing_model: "sales_led_custom_pricing",
-            feature_clusters: ["workflow automation", "renewal analytics"],
-            monetization_hypothesis: "Annual contracts for revenue teams.",
-            target_customer_signals: ["revenue teams"],
-            confidence_score: 0.84,
-            confidence_scores: { category: 0.84 },
-            warnings: [],
-          },
-          confidence_score: 0.84,
-          is_user_edited: false,
-          edited_at: null,
-        },
+        extracted_product_data: buildProductUnderstandingData(),
         icp_profiles: [],
         scenarios: [],
         simulation_runs: [],
@@ -275,9 +319,9 @@ describe("AnalysisResultPage", () => {
 
     renderPage();
 
-    expect(screen.getByText(/review the product understanding first/i)).toBeInTheDocument();
+    expect(screen.getByText(/confirm the business interpretation/i)).toBeInTheDocument();
     expect(screen.getByText(/ready to review/i)).toBeInTheDocument();
-    expect(screen.getByText(/proceed to generate icp profiles/i)).toBeInTheDocument();
+    expect(screen.getByText(/confirm understanding and continue/i)).toBeInTheDocument();
     expect(screen.queryByText(/ready for review/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/who moves first when the offer changes/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/default simulations worth pressure-testing/i)).not.toBeInTheDocument();
@@ -305,9 +349,7 @@ describe("AnalysisResultPage", () => {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         workflow: buildWorkflow("product_understanding"),
-        extracted_product_data: {
-          id: "product-1",
-          analysis_id: "analysis-1",
+        extracted_product_data: buildProductUnderstandingData({
           company_name: "Featurebase",
           product_name: "Featurebase",
           category: "Customer Support and Feedback Software",
@@ -315,25 +357,48 @@ describe("AnalysisResultPage", () => {
           positioning_summary: longPositioningSummary,
           pricing_model: longPricingModel,
           monetization_hypothesis: "Recurring software subscriptions for support and product teams.",
-          raw_extracted_json: {},
-          normalized_json: {
+          confidence_score: 0.89,
+          view_model: {
+            ...buildProductUnderstandingData().view_model,
             company_name: "Featurebase",
             product_name: "Featurebase",
+            summary_line: longPositioningSummary,
             category: "Customer Support and Feedback Software",
             subcategory: "AI-powered omnichannel support and product feedback platform",
-            positioning_summary: longPositioningSummary,
-            pricing_model: longPricingModel,
-            feature_clusters: ["shared inbox", "feedback workflows"],
-            monetization_hypothesis: "Recurring software subscriptions for support and product teams.",
-            target_customer_signals: ["product teams", "support teams"],
-            confidence_score: 0.89,
-            confidence_scores: { category: 0.89 },
-            warnings: [],
+            confidence: 0.89,
+            business_model_signals: [
+              { key: "buyer_type", label: "Buyer Type", value: "Product and support teams", score_1_to_5: null, confidence: 0.84, editable: true },
+              { key: "sales_motion", label: "Sales Motion", value: "Product-led self-serve", score_1_to_5: null, confidence: 0.82, editable: true },
+              { key: "pricing_visibility", label: "Pricing Visibility", value: "Medium", score_1_to_5: 3, confidence: 0.8, editable: true },
+              { key: "deployment_complexity", label: "Deployment Complexity", value: "Moderate", score_1_to_5: 3, confidence: 0.76, editable: true },
+            ],
+            monetization_model: {
+              pricing_visibility: "medium",
+              pricing_model: longPricingModel,
+              monetization_hypothesis: "Recurring software subscriptions for support and product teams.",
+              sales_motion: "Product-led self-serve",
+            },
+            customer_logic: {
+              core_job_to_be_done: "Centralize support and feedback workflows.",
+              why_they_buy: ["Shared inbox", "AI routing"],
+              why_they_hesitate: ["Proof of ROI"],
+              what_it_replaces: ["separate point tools"],
+            },
+            feature_clusters: [
+              { key: "shared-inbox", label: "shared inbox", importance: "high", description: "Central support inbox." },
+              { key: "feedback-workflows", label: "feedback workflows", importance: "high", description: "Collects and routes product feedback." },
+            ],
+            simulation_levers: [
+              { key: "pricing", label: "Pricing", why_it_matters: "Price changes affect conversion.", confidence: 0.8, editable: true },
+            ],
+            uncertainties: [],
+            source_coverage: {
+              fields_observed_explicitly: ["Product summary"],
+              fields_inferred: [],
+              fields_missing: [],
+            },
           },
-          confidence_score: 0.89,
-          is_user_edited: false,
-          edited_at: null,
-        },
+        }),
         icp_profiles: [],
         scenarios: [],
         simulation_runs: [],
@@ -342,9 +407,9 @@ describe("AnalysisResultPage", () => {
 
     renderPage();
 
-    await user.click(screen.getByRole("button", { name: /^edit$/i }));
+    await user.click(screen.getAllByRole("button", { name: /edit key assumptions/i })[0]);
 
-    const positioningSummaryField = screen.getByLabelText(/positioning summary/i);
+    const positioningSummaryField = screen.getByLabelText(/summary line/i);
     const pricingModelField = screen.getByLabelText(/pricing model/i);
 
     expect(positioningSummaryField).toHaveValue(longPositioningSummary);
@@ -737,35 +802,7 @@ describe("AnalysisResultPage", () => {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         workflow: buildWorkflow("final_review"),
-        extracted_product_data: {
-          id: "product-1",
-          analysis_id: "analysis-1",
-          company_name: "Acme",
-          product_name: "Acme Growth Platform",
-          category: "B2B Software",
-          subcategory: "Revenue Operations",
-          positioning_summary: "Automates onboarding and revenue expansion workflows.",
-          pricing_model: "sales_led_custom_pricing",
-          monetization_hypothesis: "Annual contracts for revenue teams.",
-          raw_extracted_json: {},
-          normalized_json: {
-            company_name: "Acme",
-            product_name: "Acme Growth Platform",
-            category: "B2B Software",
-            subcategory: "Revenue Operations",
-            positioning_summary: "Automates onboarding and revenue expansion workflows.",
-            pricing_model: "sales_led_custom_pricing",
-            feature_clusters: ["workflow automation", "renewal analytics"],
-            monetization_hypothesis: "Annual contracts for revenue teams.",
-            target_customer_signals: ["revenue teams"],
-            confidence_score: 0.84,
-            confidence_scores: { category: 0.84 },
-            warnings: [],
-          },
-          confidence_score: 0.84,
-          is_user_edited: false,
-          edited_at: null,
-        },
+        extracted_product_data: buildProductUnderstandingData(),
         icp_profiles: [
           {
             id: "icp-1",
