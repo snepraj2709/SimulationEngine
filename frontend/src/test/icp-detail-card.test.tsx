@@ -47,4 +47,21 @@ describe("ICPDetailCard", () => {
     expect(fillBar).not.toBeNull();
     expect(fillBar).toHaveClass("from-orange-500", "to-rose-500");
   });
+
+  it("renders the expanded business-facing ICP sections", () => {
+    render(<ICPDetailCard icp={icp} />);
+
+    expect(screen.getByText(/^Goals$/i)).toBeInTheDocument();
+    expect(screen.getByText(/reduce budget risk/i)).toBeInTheDocument();
+    expect(screen.getByText(/^Pain points$/i)).toBeInTheDocument();
+    expect(screen.getByText(/unclear roi/i)).toBeInTheDocument();
+    expect(screen.getByText(/^Alternatives$/i)).toBeInTheDocument();
+    expect(screen.getByText(/competitor a/i)).toBeInTheDocument();
+    const segmentWeightMetric = screen.getByText(/^Segment weight$/i).closest("div");
+    expect(segmentWeightMetric).toHaveTextContent("24%");
+    expect(screen.getByText(/^Selected drivers$/i)).toBeInTheDocument();
+    expect(screen.getByText(/^Decision driver weights$/i)).toBeInTheDocument();
+    const priceSensitivityMetric = screen.getByText(/^Price sensitivity$/i).closest("div");
+    expect(priceSensitivityMetric).toHaveTextContent("0.80");
+  });
 });

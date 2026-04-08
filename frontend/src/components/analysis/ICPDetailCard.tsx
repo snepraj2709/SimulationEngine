@@ -1,5 +1,12 @@
 import { ICPProfile } from "@/types/api";
 import { cn } from "@/lib/utils";
+import {
+  formatDriverLabel,
+  getDriverRankLabel,
+  getDriverRankStyle,
+  getRankedDriverWeights,
+  getSelectedDrivers,
+} from "@/components/analysis/icpDisplay";
 
 interface ICPDetailCardProps {
   icp: ICPProfile;
@@ -7,48 +14,10 @@ interface ICPDetailCardProps {
   onSelect?: () => void;
 }
 
-const driverRankStyles = [
-  {
-    badge: "border-emerald-200 bg-emerald-50 text-emerald-700",
-    fill: "from-emerald-500 to-teal-500",
-    panel: "border-emerald-100 bg-emerald-50/60",
-    rail: "bg-emerald-100/80",
-    tone: "text-emerald-700",
-  },
-  {
-    badge: "border-sky-200 bg-sky-50 text-sky-700",
-    fill: "from-sky-500 to-blue-500",
-    panel: "border-sky-100 bg-sky-50/60",
-    rail: "bg-sky-100/80",
-    tone: "text-sky-700",
-  },
-  {
-    badge: "border-orange-200 bg-orange-50 text-orange-800",
-    fill: "from-orange-500 to-rose-500",
-    panel: "border-orange-200 bg-orange-50/70",
-    rail: "bg-orange-100",
-    tone: "text-orange-800",
-  },
-  {
-    badge: "border-violet-200 bg-violet-50 text-violet-700",
-    fill: "from-violet-500 to-fuchsia-500",
-    panel: "border-violet-100 bg-violet-50/60",
-    rail: "bg-violet-100/80",
-    tone: "text-violet-700",
-  },
-  {
-    badge: "border-slate-200 bg-slate-100 text-slate-700",
-    fill: "from-slate-500 to-slate-600",
-    panel: "border-slate-200 bg-slate-50/80",
-    rail: "bg-slate-200/80",
-    tone: "text-slate-700",
-  },
-] as const;
-
 export function ICPDetailCard({ icp, isSelected = false, onSelect }: ICPDetailCardProps) {
-  const rankedDrivers = Object.entries(icp.driver_weights_json).sort(([, left], [, right]) => right - left);
+  const rankedDrivers = getRankedDriverWeights(icp);
+  const selectedDrivers = getSelectedDrivers(icp);
   const [topDriver, topDriverWeight] = rankedDrivers[0] ?? [];
-  const segmentShare = Math.round(icp.segment_weight * 100);
   const primaryDriverStyle = getDriverRankStyle(0);
 
   return (
@@ -62,34 +31,50 @@ export function ICPDetailCard({ icp, isSelected = false, onSelect }: ICPDetailCa
     >
       <div className={cn("h-1.5 w-full rounded-full bg-gradient-to-r", primaryDriverStyle.fill)} />
 
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">ICP segment</p>
-          <h3 className="mt-2 text-xl font-semibold leading-tight text-slate-950">{icp.name}</h3>
-          <p className="mt-2 text-sm leading-6 text-slate-600">{icp.description}</p>
-        </div>
-        <div className="shrink-0 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-right">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Segment share</p>
-          <p className="mt-1 text-2xl font-semibold leading-none text-slate-950">{segmentShare}%</p>
-        </div>
+      <div className="min-w-0">
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">ICP segment</p>
+        <h3 className="mt-2 text-xl font-semibold leading-tight text-slate-950">{icp.name}</h3>
+        <p className="mt-2 text-sm leading-6 text-slate-600">{icp.description}</p>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2">
-        <InfoPanel
-          eyebrow="Best-fit use case"
-          title={icp.use_case}
-          toneClass="border-signal/15 bg-signal/5"
-        />
-        <InfoPanel
-          eyebrow="What keeps them engaged"
-          title={icp.value_perception_explanation}
-          toneClass="border-amber/15 bg-amber/5"
-        />
+      <InfoPanel eyebrow="Best-fit use case" title={icp.use_case} toneClass="border-signal/15 bg-signal/5" />
+
+      <ListPanel eyebrow="Goals" items={icp.goals_json} toneClass="border-emerald-100 bg-emerald-50/50" />
+      <ListPanel eyebrow="Pain points" items={icp.pain_points_json} toneClass="border-rose-100 bg-rose-50/50" />
+      <ListPanel eyebrow="Alternatives" items={icp.alternatives_json} toneClass="border-sky-100 bg-sky-50/50" />
+
+      <InfoPanel
+        eyebrow="Value perception explanation"
+        title={icp.value_perception_explanation}
+        toneClass="border-amber/15 bg-amber/5"
+      />
+
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <MetricPanel label="Segment weight" value={formatMetricPercent(icp.segment_weight)} />
+        <MetricPanel label="Price sensitivity" value={formatMetricDecimal(icp.price_sensitivity)} />
+        <MetricPanel label="Switching cost" value={formatMetricDecimal(icp.switching_cost)} />
+        <MetricPanel label="Churn threshold" value={formatMetricSignedDecimal(icp.churn_threshold)} />
+        <MetricPanel label="Retention threshold" value={formatMetricSignedDecimal(icp.retention_threshold)} />
+        <MetricPanel label="Adoption friction" value={formatMetricDecimal(icp.adoption_friction)} />
+      </div>
+
+      <div className="space-y-3">
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Selected drivers</p>
+        <div className="flex flex-wrap gap-2">
+          {selectedDrivers.map((driver) => (
+            <span
+              key={driver}
+              className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700"
+            >
+              {formatDriverLabel(driver)}
+            </span>
+          ))}
+        </div>
       </div>
 
       <div>
         <div className="flex flex-wrap items-center gap-2">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Decision Drivers</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Decision driver weights</p>
           {topDriver ? (
             <span
               className={cn(
@@ -105,10 +90,7 @@ export function ICPDetailCard({ icp, isSelected = false, onSelect }: ICPDetailCa
           {rankedDrivers.map(([driver, weight], index) => {
             const driverStyle = getDriverRankStyle(index);
             return (
-              <div
-                key={driver}
-                className={cn("rounded-2xl border px-4 py-3", driverStyle.panel)}
-              >
+              <div key={driver} className={cn("rounded-2xl border px-4 py-3", driverStyle.panel)}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className={cn("text-[11px] font-semibold uppercase tracking-[0.16em]", driverStyle.tone)}>
@@ -152,20 +134,47 @@ function InfoPanel({
   );
 }
 
-function formatDriverLabel(driver: string) {
-  return driver
-    .split("_")
-    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
-    .join(" ");
+function ListPanel({
+  eyebrow,
+  items,
+  toneClass,
+}: {
+  eyebrow: string;
+  items: string[];
+  toneClass: string;
+}) {
+  return (
+    <div className={cn("rounded-2xl border px-4 py-3", toneClass)}>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">{eyebrow}</p>
+      <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-800">
+        {items.map((item) => (
+          <li key={item} className="flex gap-2">
+            <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-400" aria-hidden />
+            <span>{item}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
-function getDriverRankStyle(index: number) {
-  return driverRankStyles[Math.min(index, driverRankStyles.length - 1)];
+function MetricPanel({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</p>
+      <p className="mt-2 text-lg font-semibold text-slate-950">{value}</p>
+    </div>
+  );
 }
 
-function getDriverRankLabel(index: number) {
-  if (index === 0) return "Primary driver";
-  if (index === 1) return "Secondary driver";
-  if (index === 2) return "Third strongest signal";
-  return "Supporting signal";
+function formatMetricDecimal(value: number) {
+  return value.toFixed(2);
+}
+
+function formatMetricSignedDecimal(value: number) {
+  return value > 0 ? `+${value.toFixed(2)}` : value.toFixed(2);
+}
+
+function formatMetricPercent(value: number) {
+  return `${Math.round(value * 100)}%`;
 }

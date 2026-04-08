@@ -1,13 +1,14 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createAnalysis } from "@/api/analyses";
+import { createAnalysis, updateIcpProfile } from "@/api/analyses";
 import { AnalysisResultPage } from "@/pages/AnalysisResultPage";
 import { useAuthStore } from "@/store/auth-store";
 import { useUIStore } from "@/store/ui-store";
+import { AnalysisDetail, AnalysisWorkflow, ICPProfile, WorkflowStepStatus } from "@/types/api";
 
 const mockUseAnalysisPolling = vi.fn();
 
@@ -29,6 +30,7 @@ vi.mock("@/api/analyses", async () => {
       reused: false,
       cloned_from_analysis_id: null,
     }),
+    updateIcpProfile: vi.fn(),
   };
 });
 
@@ -52,7 +54,7 @@ function renderPage() {
   );
 }
 
-function buildWorkflow(currentStage: "product_understanding" | "icp_profiles" | "scenarios" | "decision_flow" | "final_review") {
+function buildWorkflow(currentStage: "product_understanding" | "icp_profiles" | "scenarios" | "decision_flow" | "final_review"): AnalysisWorkflow {
   const order = [
     ["product_understanding", "Product Understanding"],
     ["icp_profiles", "ICP Profiles"],
@@ -68,8 +70,9 @@ function buildWorkflow(currentStage: "product_understanding" | "icp_profiles" | 
     steps: order.map(([stage, label], index) => ({
       stage,
       label,
-      status:
-        index < currentIndex ? "completed" : index === currentIndex ? (currentStage === "final_review" ? "completed" : "awaiting_review") : "not_started",
+      status: (
+        index < currentIndex ? "completed" : index === currentIndex ? (currentStage === "final_review" ? "completed" : "awaiting_review") : "not_started"
+      ) as WorkflowStepStatus,
       is_current: index === currentIndex,
       is_complete: index < currentIndex || currentStage === "final_review",
       started_at: null,
@@ -80,9 +83,64 @@ function buildWorkflow(currentStage: "product_understanding" | "icp_profiles" | 
   };
 }
 
+function buildIcpProfile(overrides: Partial<ICPProfile> = {}): ICPProfile {
+  return {
+    id: "icp-1",
+    analysis_id: "analysis-1",
+    display_order: 0,
+    is_user_edited: false,
+    edited_at: null,
+    name: "Revenue operations lead",
+    description: "Owns retention tooling.",
+    use_case: "Standardize renewals.",
+    goals_json: ["Reduce churn", "Improve forecasting"],
+    pain_points_json: ["Disconnected tooling", "Manual handoffs"],
+    decision_drivers_json: ["team_enablement", "analytics_depth", "automation_coverage"],
+    driver_weights_json: { team_enablement: 0.4, analytics_depth: 0.35, automation_coverage: 0.25 },
+    price_sensitivity: 0.4,
+    switching_cost: 0.5,
+    alternatives_json: ["CRM", "Spreadsheet workflow"],
+    churn_threshold: -0.2,
+    retention_threshold: 0.07,
+    adoption_friction: 0.2,
+    value_perception_explanation: "Needs strong workflow breadth.",
+    segment_weight: 1,
+    ...overrides,
+  };
+}
+
+function buildIcpStageDetail(icps: ICPProfile[] = [buildIcpProfile()], overrides: Partial<AnalysisDetail> = {}): AnalysisDetail {
+  return {
+    id: "analysis-1",
+    input_url: "https://acme.example/",
+    normalized_url: "https://acme.example",
+    status: "awaiting_review",
+    current_stage: "icp_profiles",
+    started_at: new Date().toISOString(),
+    completed_at: null,
+    error_message: null,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    workflow: buildWorkflow("icp_profiles"),
+    extracted_product_data: null,
+    icp_profiles: icps,
+    scenarios: [],
+    simulation_runs: [],
+    ...overrides,
+  };
+}
+
+function expectInDocumentOrder(elements: HTMLElement[]) {
+  elements.reduce((previous, current) => {
+    expect(previous.compareDocumentPosition(current) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    return current;
+  });
+}
+
 describe("AnalysisResultPage", () => {
   beforeEach(() => {
     mockUseAnalysisPolling.mockReset();
+    vi.mocked(updateIcpProfile).mockReset();
     useAuthStore.setState({
       token: "token",
       user: {
@@ -298,46 +356,12 @@ describe("AnalysisResultPage", () => {
     mockUseAnalysisPolling.mockReturnValue({
       isLoading: false,
       error: null,
-      data: {
-        id: "analysis-1",
-        input_url: "https://acme.example/",
-        normalized_url: "https://acme.example",
-        status: "awaiting_review",
-        current_stage: "icp_profiles",
-        started_at: new Date().toISOString(),
-        completed_at: null,
-        error_message: null,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        workflow: buildWorkflow("icp_profiles"),
-        extracted_product_data: null,
-        icp_profiles: [
-          {
-            id: "icp-1",
-            analysis_id: "analysis-1",
-            display_order: 0,
-            is_user_edited: true,
-            edited_at: new Date().toISOString(),
-            name: "Revenue operations lead",
-            description: "Owns retention tooling.",
-            use_case: "Standardize renewals.",
-            goals_json: ["Reduce churn"],
-            pain_points_json: ["Disconnected tooling"],
-            decision_drivers_json: ["team_enablement", "analytics_depth", "automation_coverage"],
-            driver_weights_json: { team_enablement: 0.4, analytics_depth: 0.35, automation_coverage: 0.25 },
-            price_sensitivity: 0.4,
-            switching_cost: 0.5,
-            alternatives_json: ["CRM"],
-            churn_threshold: -0.2,
-            retention_threshold: 0.07,
-            adoption_friction: 0.2,
-            value_perception_explanation: "Needs strong workflow breadth.",
-            segment_weight: 1,
-          },
-        ],
-        scenarios: [],
-        simulation_runs: [],
-      },
+      data: buildIcpStageDetail([
+        buildIcpProfile({
+          is_user_edited: true,
+          edited_at: new Date().toISOString(),
+        }),
+      ]),
     });
 
     renderPage();
@@ -345,6 +369,119 @@ describe("AnalysisResultPage", () => {
     expect(screen.getByText(/icp 1 of 1/i)).toBeInTheDocument();
     expect(screen.getByText(/reviewed by you/i)).toBeInTheDocument();
     expect(screen.queryByText(/ready for review/i)).not.toBeInTheDocument();
+  });
+
+  it("renders the expanded ICP read-only card before edit mode", () => {
+    mockUseAnalysisPolling.mockReturnValue({
+      isLoading: false,
+      error: null,
+      data: buildIcpStageDetail(),
+    });
+
+    renderPage();
+
+    expect(screen.getByText(/^Goals$/i)).toBeInTheDocument();
+    expect(screen.getByText(/^Pain points$/i)).toBeInTheDocument();
+    expect(screen.getByText(/^Alternatives$/i)).toBeInTheDocument();
+    expect(screen.getByText(/^Segment weight$/i)).toBeInTheDocument();
+    expect(screen.getByText(/^Selected drivers$/i)).toBeInTheDocument();
+    expect(screen.getByText(/^Decision driver weights$/i)).toBeInTheDocument();
+    expect(screen.getByText(/spreadsheet workflow/i)).toBeInTheDocument();
+  });
+
+  it("shows ICP edit fields in the same order as the read-only card and uses sliders for driver weights", async () => {
+    const user = userEvent.setup();
+
+    mockUseAnalysisPolling.mockReturnValue({
+      isLoading: false,
+      error: null,
+      data: buildIcpStageDetail(),
+    });
+
+    renderPage();
+
+    await user.click(screen.getByRole("button", { name: /^edit$/i }));
+
+    expectInDocumentOrder([
+      screen.getByText(/^Name$/),
+      screen.getByText(/^Description$/),
+      screen.getByText(/^Use case$/),
+      screen.getByText(/^Goals$/),
+      screen.getByText(/^Pain points$/),
+      screen.getByText(/^Alternatives$/),
+      screen.getByText(/^Value perception explanation$/),
+      screen.getByText(/^Segment weight$/),
+      screen.getByText(/^Price sensitivity$/),
+      screen.getByText(/^Switching cost$/),
+      screen.getByText(/^Churn threshold$/),
+      screen.getByText(/^Retention threshold$/),
+      screen.getByText(/^Adoption friction$/),
+      screen.getByText(/^Decision Drivers$/),
+    ]);
+
+    expect(screen.getAllByRole("slider")).toHaveLength(3);
+    expect(screen.queryByRole("spinbutton", { name: /^Weight$/i })).not.toBeInTheDocument();
+  });
+
+  it("saves added, removed, and reweighted drivers back into the read-only card", async () => {
+    const user = userEvent.setup();
+    const updateIcpProfileMock = vi.mocked(updateIcpProfile);
+    const initialDetail = buildIcpStageDetail();
+    let analysisState = initialDetail;
+
+    mockUseAnalysisPolling.mockImplementation(() => ({
+      isLoading: false,
+      error: null,
+      data: analysisState,
+    }));
+
+    updateIcpProfileMock.mockImplementation(async () => {
+      analysisState = buildIcpStageDetail([
+        buildIcpProfile({
+          decision_drivers_json: ["team_enablement", "automation_coverage", "price_affordability"],
+          driver_weights_json: { team_enablement: 0.5, automation_coverage: 0.3, price_affordability: 0.2 },
+          is_user_edited: true,
+          edited_at: new Date().toISOString(),
+        }),
+      ]);
+      return analysisState;
+    });
+
+    renderPage();
+
+    await user.click(screen.getByRole("button", { name: /^edit$/i }));
+    await user.click(screen.getByRole("button", { name: /add driver/i }));
+
+    const driverInputs = screen.getAllByRole("combobox");
+    expect(driverInputs).toHaveLength(4);
+
+    await user.click(screen.getAllByRole("button", { name: /remove/i })[1]);
+    fireEvent.change(screen.getByRole("slider", { name: /weight for team enablement/i }), {
+      target: { value: "0.55" },
+    });
+
+    await user.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() => {
+      expect(updateIcpProfileMock).toHaveBeenCalledWith(
+        "analysis-1",
+        "icp-1",
+        expect.objectContaining({
+          decision_drivers: ["team_enablement", "automation_coverage", "price_affordability"],
+          driver_weights: [
+            { driver: "team_enablement", weight: 0.55 },
+            { driver: "automation_coverage", weight: 0.25 },
+            { driver: "price_affordability", weight: 0 },
+          ],
+        }),
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/^Price Affordability$/i)).toHaveLength(2);
+    });
+    expect(screen.queryByText(/^Analytics Depth$/)).not.toBeInTheDocument();
+    expect(screen.getByText(/primary driver: Team Enablement 50%/i)).toBeInTheDocument();
   });
 
   it("shows the review cue inside the scenario stage header instead of a separate status card", () => {

@@ -21,6 +21,12 @@ import { ErrorState } from "@/components/analysis/ErrorState";
 import { FeedbackBar } from "@/components/analysis/FeedbackBar";
 import { ICPCardGrid } from "@/components/analysis/ICPCardGrid";
 import { ICPDetailCard } from "@/components/analysis/ICPDetailCard";
+import {
+  formatDriverLabel,
+  getDriverRankLabel,
+  getDriverRankStyle,
+  getEditableDriverRows,
+} from "@/components/analysis/icpDisplay";
 import { LoadingState } from "@/components/analysis/LoadingState";
 import { ProductSummaryPanel } from "@/components/analysis/ProductSummaryPanel";
 import { ScenarioSuggestionList } from "@/components/analysis/ScenarioSuggestionList";
@@ -779,54 +785,51 @@ function ICPReviewStage({
       />
 
       {editing ? (
-        <section className="panel p-6">
-          <div className="grid gap-4 md:grid-cols-2">
-            <TextField label="Name" value={draft.name} onChange={(value) => onChange({ ...draft, name: value })} />
-            <TextField label="Use case" value={draft.use_case} onChange={(value) => onChange({ ...draft, use_case: value })} />
-          </div>
-          <div className="mt-4 space-y-4">
-            <TextareaField
-              label="Description"
-              value={draft.description}
-              rows={4}
-              onChange={(value) => onChange({ ...draft, description: value })}
-            />
-            <TextareaField label="Goals" hint="One item per line" value={draft.goals} rows={4} onChange={(value) => onChange({ ...draft, goals: value })} />
-            <TextareaField
-              label="Pain points"
-              hint="One item per line"
-              value={draft.pain_points}
-              rows={4}
-              onChange={(value) => onChange({ ...draft, pain_points: value })}
-            />
-            <TextareaField
-              label="Alternatives"
-              hint="One item per line"
-              value={draft.alternatives}
-              rows={4}
-              onChange={(value) => onChange({ ...draft, alternatives: value })}
-            />
-            <TextareaField
-              label="Value perception explanation"
-              value={draft.value_perception_explanation}
-              rows={4}
-              onChange={(value) => onChange({ ...draft, value_perception_explanation: value })}
-            />
-          </div>
-          <div className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <section className="panel space-y-6 p-6">
+          <TextField label="Name" value={draft.name} onChange={(value) => onChange({ ...draft, name: value })} />
+          <TextareaField
+            label="Description"
+            value={draft.description}
+            rows={4}
+            onChange={(value) => onChange({ ...draft, description: value })}
+          />
+          <TextField label="Use case" value={draft.use_case} onChange={(value) => onChange({ ...draft, use_case: value })} />
+          <TextareaField label="Goals" hint="One item per line" value={draft.goals} rows={4} onChange={(value) => onChange({ ...draft, goals: value })} />
+          <TextareaField
+            label="Pain points"
+            hint="One item per line"
+            value={draft.pain_points}
+            rows={4}
+            onChange={(value) => onChange({ ...draft, pain_points: value })}
+          />
+          <TextareaField
+            label="Alternatives"
+            hint="One item per line"
+            value={draft.alternatives}
+            rows={4}
+            onChange={(value) => onChange({ ...draft, alternatives: value })}
+          />
+          <TextareaField
+            label="Value perception explanation"
+            value={draft.value_perception_explanation}
+            rows={4}
+            onChange={(value) => onChange({ ...draft, value_perception_explanation: value })}
+          />
+
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <NumberField label="Segment weight" value={draft.segment_weight} min={0.01} max={1} step={0.01} onChange={(value) => onChange({ ...draft, segment_weight: value })} />
             <NumberField label="Price sensitivity" value={draft.price_sensitivity} min={0} max={1} step={0.01} onChange={(value) => onChange({ ...draft, price_sensitivity: value })} />
             <NumberField label="Switching cost" value={draft.switching_cost} min={0} max={1} step={0.01} onChange={(value) => onChange({ ...draft, switching_cost: value })} />
             <NumberField label="Churn threshold" value={draft.churn_threshold} min={-0.35} max={-0.05} step={0.01} onChange={(value) => onChange({ ...draft, churn_threshold: value })} />
             <NumberField label="Retention threshold" value={draft.retention_threshold} min={0.02} max={0.15} step={0.01} onChange={(value) => onChange({ ...draft, retention_threshold: value })} />
             <NumberField label="Adoption friction" value={draft.adoption_friction} min={0} max={1} step={0.01} onChange={(value) => onChange({ ...draft, adoption_friction: value })} />
-            <NumberField label="Segment weight" value={draft.segment_weight} min={0.01} max={1} step={0.01} onChange={(value) => onChange({ ...draft, segment_weight: value })} />
           </div>
 
-          <div className="mt-6 rounded-3xl border border-slate-200 bg-slate-50 p-5">
+          <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Decision Drivers</p>
-                <p className="mt-1 text-sm text-slate-600">Pick 3-6 drivers and assign weights. The backend renormalizes them.</p>
+                <p className="mt-1 text-sm text-slate-600">Pick 3-6 drivers and adjust their weights with sliders. The backend renormalizes them.</p>
               </div>
               <button
                 type="button"
@@ -843,7 +846,7 @@ function ICPReviewStage({
             </div>
             <div className="mt-4 space-y-3">
               {draft.driver_rows.map((row, index) => (
-                <div key={`${row.driver}-${index}`} className="grid gap-3 md:grid-cols-[1.4fr_0.8fr_auto]">
+                <div key={`${row.driver}-${index}`} className="grid gap-3 md:grid-cols-[1.1fr_1.3fr_auto]">
                   <label className="space-y-2 text-sm">
                     <span className="font-medium text-slate-700">Driver</span>
                     <select
@@ -865,12 +868,10 @@ function ICPReviewStage({
                       ))}
                     </select>
                   </label>
-                  <NumberField
-                    label="Weight"
+                  <DriverWeightField
+                    driver={row.driver}
                     value={row.weight}
-                    min={0}
-                    max={1}
-                    step={0.01}
+                    index={index}
                     onChange={(value) =>
                       onChange({
                         ...draft,
@@ -1259,6 +1260,50 @@ function NumberField({
   );
 }
 
+function DriverWeightField({
+  driver,
+  value,
+  index,
+  onChange,
+}: {
+  driver: string;
+  value: number;
+  index: number;
+  onChange: (value: number) => void;
+}) {
+  const driverStyle = getDriverRankStyle(index);
+  const safeValue = Number.isFinite(value) ? value : 0;
+
+  return (
+    <label className="space-y-2 text-sm">
+      <span className="font-medium text-slate-700">Weight</span>
+      <div className={cn("rounded-2xl border px-4 py-3", driverStyle.panel)}>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className={cn("text-[11px] font-semibold uppercase tracking-[0.16em]", driverStyle.tone)}>
+              {getDriverRankLabel(index)}
+            </p>
+            <p className="mt-1 text-sm font-semibold text-slate-950">{formatDriverLabel(driver)}</p>
+          </div>
+          <div className="shrink-0 rounded-full bg-white/80 px-2.5 py-1 text-sm font-semibold text-slate-800">
+            {Math.round(safeValue * 100)}%
+          </div>
+        </div>
+        <input
+          type="range"
+          min={0}
+          max={1}
+          step={0.01}
+          value={safeValue}
+          aria-label={`Weight for ${formatDriverLabel(driver)}`}
+          className={cn("mt-3 w-full cursor-pointer rounded-full", driverStyle.accent)}
+          onChange={(event) => onChange(Number(event.target.value))}
+        />
+      </div>
+    </label>
+  );
+}
+
 function createProductDraft(data: NonNullable<AnalysisDetail["extracted_product_data"]>): ProductDraft {
   return {
     company_name: data.company_name,
@@ -1289,7 +1334,7 @@ function createIcpDraft(icp: ICPProfile): IcpDraft {
     retention_threshold: icp.retention_threshold,
     adoption_friction: icp.adoption_friction,
     segment_weight: icp.segment_weight,
-    driver_rows: Object.entries(icp.driver_weights_json).map(([driver, weight]) => ({ driver, weight })),
+    driver_rows: getEditableDriverRows(icp),
   };
 }
 
@@ -1342,13 +1387,6 @@ function clampIndex(index: number, total: number) {
 
 function roundToPercent(value: number) {
   return Math.round(value * 1000) / 1000;
-}
-
-function formatDriverLabel(driver: string) {
-  return driver
-    .split("_")
-    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
-    .join(" ");
 }
 
 function formatKeyLabel(key: string) {
